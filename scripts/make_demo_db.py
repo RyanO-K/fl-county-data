@@ -32,33 +32,14 @@ ALWAYS_TABLES = ("sync_log",)
 
 
 def simplify_geom(gj, places=6):
-    """Round coordinates and drop consecutive duplicates. Pure Python, fast
-    enough for a few hundred thousand polygons."""
+    """Round coordinates (etl.round_geometry) and store compressed."""
     if not gj:
         return gj
     try:
         g = json.loads(etl.decode_json(gj))
     except (TypeError, ValueError):
         return gj
-
-    def ring(coords):
-        out = []
-        last = None
-        for pt in coords:
-            p = (round(pt[0], places), round(pt[1], places))
-            if p != last:
-                out.append([p[0], p[1]])
-                last = p
-        if len(out) > 1 and out[0] != out[-1]:
-            out.append(out[0])
-        return out
-
-    t = g.get("type")
-    if t == "Polygon":
-        g["coordinates"] = [ring(r) for r in g["coordinates"]]
-    elif t == "MultiPolygon":
-        g["coordinates"] = [[ring(r) for r in poly] for poly in g["coordinates"]]
-    return etl.encode_json(g)
+    return etl.encode_json(etl.round_geometry(g, places))
 
 
 def recompress_attrs(aj):
@@ -66,20 +47,22 @@ def recompress_attrs(aj):
     return etl.encode_json(etl.decode_json(aj)) if aj is not None else None
 
 
-def county_sizes(src, require_parcels=False):
+def county_sizes(src, require_parcels=False, parcel_attrs=True):
     """Estimated on-disk bytes per county in the demo. Source rows may be plain
     text (pre-codec) or already compressed; measured ratios: rounded+zlib
     geometry ~4.5x, zlib attributes ~2.3x, plus ~1.3x SQLite page overhead;
     parcel_values rows are ~320 B each including their three indexes."""
     geo = {}
     attr = {}
-    for county, g, a, gsz, asz in src.execute(
-            "SELECT county, geometry_geojson, attributes_json, "
+    for county, dt, g, a, gsz, asz in src.execute(
+            "SELECT county, dataset_type, geometry_geojson, attributes_json, "
             "SUM(COALESCE(length(geometry_geojson),0)), SUM(COALESCE(length(attributes_json),0)) "
-            "FROM features GROUP BY county"):
+            "FROM features GROUP BY county, dataset_type"):
         # a blob sample tells us whether that county's rows are already compressed
-        geo[county] = gsz if isinstance(g, bytes) else gsz / 4.5
-        attr[county] = asz if isinstance(a, bytes) else asz / 2.3
+        # compressed rows still shrink ~2.5x when re-rounded (servers send full doubles + Z)
+        geo[county] = geo.get(county, 0) + (gsz / 2.5 if isinstance(g, bytes) else gsz / 4.5)
+        if parcel_attrs or dt != "parcels":
+            attr[county] = attr.get(county, 0) + (asz if isinstance(a, bytes) else asz / 2.3)
     vals = dict(src.execute("SELECT county, COUNT(*)*320 FROM parcel_values GROUP BY county").fetchall())
     counties = set(geo) | set(vals)
     if require_parcels:
@@ -98,13 +81,16 @@ def main():
     ap.add_argument("--source", default=str(etl.DB_PATH))
     ap.add_argument("--require-parcels", action="store_true",
                     help="budget mode: only consider counties whose parcel boundaries are loaded")
+    ap.add_argument("--parcel-attrs", choices=("keep", "off"), default="keep",
+                    help="off: drop raw attributes_json on parcel rows (values, acreage, use codes and geometry "
+                         "stay); metro layers carry ~100 fields per parcel, which dominates the size")
     args = ap.parse_args()
 
     src = sqlite3.connect(f"file:{Path(args.source).as_posix()}?mode=ro", uri=True, timeout=120)
     if args.counties:
         chosen = [c.strip() for c in args.counties.split(",") if c.strip()]
     else:
-        sizes = county_sizes(src, args.require_parcels)
+        sizes = county_sizes(src, args.require_parcels, args.parcel_attrs == "keep")
         budget = args.budget_mb * 1024 * 1024
         chosen, used = [], 0
         # Priority metros (Tampa Bay, Orlando) first in listed order, then smallest-first.
@@ -135,13 +121,17 @@ def main():
     cols = [r[1] for r in src.execute("PRAGMA table_info(features)")]
     gi = cols.index("geometry_geojson")
     ai = cols.index("attributes_json")
+    di = cols.index("dataset_type")
+    drop_parcel_attrs = args.parcel_attrs == "off"
     n = 0
     cur = src.execute(f"SELECT {', '.join(cols)} FROM features WHERE county IN ({ph})", chosen)
     while True:
         rows = cur.fetchmany(2000)
         if not rows:
             break
-        rows = [tuple(simplify_geom(v) if i == gi else recompress_attrs(v) if i == ai else v
+        rows = [tuple(simplify_geom(v) if i == gi
+                      else (None if drop_parcel_attrs and r[di] == "parcels" else recompress_attrs(v)) if i == ai
+                      else v
                       for i, v in enumerate(r)) for r in rows]
         dst.executemany(f"INSERT INTO features ({', '.join(cols)}) VALUES ({','.join('?'*len(cols))})", rows)
         n += len(rows)
@@ -166,7 +156,9 @@ def main():
     dst.executemany("INSERT INTO demo_info VALUES (?,?)", [
         ("counties", json.dumps(sorted(chosen))),
         ("built_from", "full 67-county database"),
-        ("note", "Demo subset: whole counties, geometry rounded to 6 decimals, JSON columns zlib-compressed."),
+        ("note", "Demo subset: whole counties, geometry rounded to 6 decimals, JSON columns zlib-compressed."
+                 + (" Raw source attributes omitted on parcel rows." if drop_parcel_attrs else "")),
+        ("parcel_attrs", "off" if drop_parcel_attrs else "keep"),
     ])
     dst.commit()
     dst.execute("VACUUM")

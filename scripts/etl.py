@@ -422,6 +422,39 @@ PRIORITY_COUNTIES = [
 # ~2.3x on attributes, ~4.5x on rounded geometry, 0.07 ms/row. Values are
 # self-describing: a zlib stream always starts with 0x78, JSON text never
 # does, so plain-text rows written before this change decode unchanged.
+def round_geometry(geom, places=6):
+    """Round GeoJSON coordinates to `places` decimals (6 ~ 10 cm), drop any Z
+    value and consecutive duplicate points. Servers hand out full doubles
+    (and often a meaningless Z), which is 2-3x the storage for no map-scale
+    difference."""
+    if not geom:
+        return geom
+
+    def ring(coords):
+        out, last = [], None
+        for pt in coords:
+            p = (round(pt[0], places), round(pt[1], places))
+            if p != last:
+                out.append([p[0], p[1]])
+                last = p
+        if len(out) > 1 and out[0] != out[-1]:
+            out.append(out[0])
+        return out
+
+    t = geom.get("type")
+    if t == "Polygon":
+        geom["coordinates"] = [ring(r) for r in geom["coordinates"]]
+    elif t == "MultiPolygon":
+        geom["coordinates"] = [[ring(r) for r in poly] for poly in geom["coordinates"]]
+    elif t == "Point":
+        geom["coordinates"] = [round(geom["coordinates"][0], places), round(geom["coordinates"][1], places)]
+    elif t in ("LineString", "MultiPoint"):
+        geom["coordinates"] = [[round(x, places), round(y, places)] for x, y, *_ in geom["coordinates"]]
+    elif t == "MultiLineString":
+        geom["coordinates"] = [[[round(x, places), round(y, places)] for x, y, *_ in line] for line in geom["coordinates"]]
+    return geom
+
+
 def encode_json(value):
     """str/dict/list/None -> compressed bytes (or None)."""
     if value is None:
@@ -470,7 +503,7 @@ def _write_features(conn, county, dataset_type, key_field, field_map, feats, exc
             _num(props.get(field_map.get("land_value"))),
             _num(props.get(field_map.get("building_value"))),
             _num(props.get(field_map.get("total_value"))),
-            encode_json(geom) if geom else None,
+            encode_json(round_geometry(geom)) if geom else None,
             encode_json(_public_props(props, exclude_fields)),
             now,
         ))
