@@ -393,10 +393,9 @@ def is_private_field(key):
 # cores first, then the adjacent ring. The bulk loader takes these before the
 # smallest-first sweep and the demo builder fills its budget with them first.
 PRIORITY_COUNTIES = [
-    "hillsborough", "pinellas", "pasco", "hernando",          # Tampa Bay MSA
-    "orange", "seminole", "osceola", "lake",                  # Orlando MSA
-    "polk", "manatee", "sarasota", "citrus", "sumter",        # ring: Tampa side / I-4 corridor
-    "volusia", "brevard",                                     # ring: Orlando side
+    "orange", "pinellas", "pasco", "polk", "osceola", "lake",          # Orlando + Tampa cores with county REST layers (fast)
+    "hernando", "manatee", "sarasota", "volusia", "brevard", "citrus", "sumter",  # ring
+    "hillsborough", "seminole",   # no county REST layer: statewide DOR cadastral by OBJECTID (hours each), so last
 ]
 
 

@@ -451,11 +451,14 @@ def api_value_detail(county, parcel_id):
         (county, parcel_id),
     ).fetchone()
     if geom is None:
-        geom = conn.execute(
-            "SELECT id, geometry_geojson FROM features "
-            "WHERE county = ? AND dataset_type = 'parcels' AND feature_key_norm = ? LIMIT 1",
-            (county, row["parcel_key"]),
-        ).fetchone()
+        try:
+            geom = conn.execute(
+                "SELECT id, geometry_geojson FROM features "
+                "WHERE county = ? AND dataset_type = 'parcels' AND feature_key_norm = ? LIMIT 1",
+                (county, row["parcel_key"]),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            geom = None  # database built before feature_key_norm existed: exact match only
     out["feature_id"] = geom["id"] if geom else None
     out["geometry_geojson"] = etl.decode_json(geom["geometry_geojson"]) if geom else None
     return jsonify(out)

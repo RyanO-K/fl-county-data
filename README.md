@@ -238,7 +238,7 @@ geometry-derived parcel acreage to `dor` where land square footage exists.
 
 ### Priority counties
 
-`etl.PRIORITY_COUNTIES` lists the Tampa Bay and Orlando metro counties (Hillsborough, Pinellas, Pasco, Hernando, Orange, Seminole, Osceola, Lake, then the ring: Polk, Manatee, Sarasota, Citrus, Sumter, Volusia, Brevard). `load_all.py phase2` loads them first, in that order, before the smallest-first sweep, and `make_demo_db.py --budget-mb N --require-parcels` fills the demo budget with them first (only counties whose parcel boundaries are at least 90% loaded are eligible).
+`etl.PRIORITY_COUNTIES` lists the Tampa Bay and Orlando metro counties (Orange, Pinellas, Pasco, Polk, Osceola, Lake, then the ring Hernando, Manatee, Sarasota, Volusia, Brevard, Citrus, Sumter, and last Hillsborough and Seminole, which come from the slower statewide layer). `load_all.py phase2` loads them first, in that order, before the smallest-first sweep, and `make_demo_db.py --budget-mb N --require-parcels` fills the demo budget with them first (only counties whose parcel boundaries are at least 90% loaded are eligible).
 
 ### Value join performance
 

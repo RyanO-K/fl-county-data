@@ -593,7 +593,8 @@
         "city": "PHY_CITY"
       },
       "notes": "No public county REST parcel layer (previous finding: No public REST/API layer found. Bulk parcel shapefile + attribute spreadsheet published at https://downloads.hcpafl.org/ (updated on a rolling basis). Requires ...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values, same as the other statewide_geometry counties.",
-      "type": "statewide_geometry"
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "url": "https://maps.hillsboroughcounty.org/arcgis/rest/services/DSD_Viewer_Services/DSD_Viewer_Zoning_Regulatory/MapServer/0",
@@ -1297,7 +1298,8 @@
         "city": "PHY_CITY"
       },
       "notes": "No public county REST parcel layer (previous finding: No public ArcGIS REST endpoint found after several probes (gis.seminolecountyfl.gov and egis.seminolecountyfl.gov do not resolve; no county ArcGIS Hub/opendata....). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values, same as the other statewide_geometry counties.",
-      "type": "statewide_geometry"
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "type": "manual",
