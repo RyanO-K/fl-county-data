@@ -37,17 +37,23 @@
       </div>
     </div>
     <div id="status-summary" class="status-summary"></div>
+    <p class="hint status-legend">
+      All 67 Florida counties and the most recent update per dataset. Times are
+      relative — hover any of them for the exact timestamp, and hover a
+      <span class="status-tag status-failed">failed</span> cell for the error.
+      <span class="metro-badge">metro</span> marks a priority metro county.
+      Click a column heading to sort.
+    </p>
     <div class="table-wrap">
-      <table id="status-table">
+      <table id="status-counties-table" class="status-counties">
         <thead>
           <tr>
-            <th>County</th>
-            <th>Dataset</th>
-            <th>Status</th>
-            <th>Rows (last run)</th>
-            <th>Rows (current)</th>
-            <th>Started</th>
-            <th>Finished</th>
+            <th class="sortable" data-sort-key="county" title="Sort by county name">County</th>
+            <th class="sortable" data-sort-key="dor_values" title="Statewide FL DOR tax roll: last successful sync and this county's valued-parcel count">DOR values</th>
+            <th class="sortable" data-sort-key="parcels" title="County parcel boundaries: last successful sync, rows loaded, and the share carrying a DOR value">Parcels</th>
+            <th class="sortable" data-sort-key="zoning" title="Zoning layer: last successful sync and rows loaded">Zoning</th>
+            <th class="sortable" data-sort-key="land_use" title="Existing land use layer: last successful sync and rows loaded">Land use</th>
+            <th class="sortable" data-sort-key="future_land_use" title="Future land use layer: last successful sync and rows loaded">Future land use</th>
           </tr>
         </thead>
         <tbody id="status-tbody"></tbody>

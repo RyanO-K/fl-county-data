@@ -354,6 +354,18 @@ New read-only endpoints backing the Parcel Values tab: `/api/values`
 reports live row counts for `dor_values` sync_log entries from
 `parcel_values` instead of `features`.
 
+The **Pipeline Status** tab is driven by `/api/status/counties`: one row per
+county in `sources.json` (all 67, including counties with nothing loaded yet)
+with a cell per dataset — DOR values, parcels, zoning, land use, future land
+use — carrying the last successful sync time, the live row count, and a state
+(`ok` / `failed` / `running` / `manual` / `not_loaded` / `not_configured`).
+The parcels cell also carries the join rate (share of parcel features with a
+`total_value`). The payload is cached in-process for 60 s (~1.3 s to build);
+the join rate needs a full scan of the parcel rows (~9 s, `total_value` is not
+indexed), so it is computed on a background thread and cached for 10 min —
+the first poll after startup returns `join_rates_pending: true` and the page
+fills the number in on a later refresh. `/api/status` is unchanged.
+
 Start it:
 
 ```
@@ -369,7 +381,7 @@ Notes:
   (`mode=ro` URI, one per request) and never holds a write-capable handle
   open, so it's safe to leave running while `etl.py` runs concurrently
   (daily via Task Scheduler, or manually) and rewrites the database.
-- The frontend polls `/api/status` every 20s and the current table page
+- The frontend polls `/api/status/counties` every 20s and the current table page
   every 25s, patching only the values that changed (row counts, "last
   synced" timestamps, sync status) rather than doing a full page
   re-render, so pipeline progress shows up live without a manual reload.

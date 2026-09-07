@@ -15,6 +15,9 @@ Then open http://127.0.0.1:5000/ in a browser.
 import json
 import os
 import sqlite3
+import threading
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, g, jsonify, render_template, request
@@ -546,6 +549,252 @@ def api_status():
             "failing_count": failing,
         },
     })
+
+
+# ---------------------------------------------------------------------------
+# Pipeline status, one row per county
+#
+# /api/status (above) is kept as-is for backward compatibility; the Pipeline
+# Status page uses /api/status/counties, which pivots the same sync_log data
+# into one row per configured county with a cell per dataset.
+# ---------------------------------------------------------------------------
+
+# Per-county dataset columns, in display order. Matches load_all.NON_PARCEL_TYPES
+# plus parcels; DOR values are handled separately (a single statewide sync).
+STATUS_DATASETS = ("parcels", "zoning", "land_use", "future_land_use")
+
+STATUS_TTL = 60      # s; the payload costs ~1.3 s to build (two GROUP BYs)
+JOIN_TTL = 600       # s; the join-rate scan costs ~9 s (see _compute_join_rates)
+
+_status_lock = threading.Lock()
+_status_cache = {"data": None, "at": 0.0}
+_join_lock = threading.Lock()
+_join_cache = {"data": None, "at": 0.0, "running": False}
+
+
+def read_sources():
+    try:
+        return json.loads(SOURCES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _ro_conn():
+    """A standalone read-only connection (for work off the request thread)."""
+    return sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True, timeout=60)
+
+
+def _compute_join_rates():
+    """{county: {"total": n, "joined": n}} over dataset_type='parcels'.
+
+    How many parcel features carry a DOR value. Unlike the plain per-county
+    counts (which ride the covering index idx_features_norm in ~0.4 s), this
+    has to touch total_value, so it is a full scan of ~2.2M parcel rows that
+    each carry compressed geometry: ~9 s. Far too slow to run per request, so
+    it runs on a background thread and the page fills the number in on a later
+    poll.
+    """
+    conn = _ro_conn()
+    try:
+        rows = conn.execute(
+            "SELECT county, COUNT(*) AS total, "
+            "SUM(CASE WHEN total_value IS NOT NULL THEN 1 ELSE 0 END) AS joined "
+            "FROM features WHERE dataset_type = 'parcels' GROUP BY county"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {r[0]: {"total": r[1], "joined": r[2] or 0} for r in rows}
+
+
+def _refresh_join_rates():
+    data = None
+    try:
+        data = _compute_join_rates()
+    except sqlite3.Error:
+        pass  # keep the previous numbers; try again after the TTL
+    with _join_lock:
+        if data is not None:
+            _join_cache["data"] = data
+        _join_cache["at"] = time.time()
+        _join_cache["running"] = False
+
+
+def join_rates():
+    """Cached join rates, kicking off a background refresh when stale.
+
+    Returns (map_or_None, pending) - pending is True only before the very
+    first scan finishes, which is when the UI has nothing to show yet.
+    """
+    start = False
+    with _join_lock:
+        data = _join_cache["data"]
+        if not _join_cache["running"] and time.time() - _join_cache["at"] > JOIN_TTL:
+            _join_cache["running"] = True
+            start = True
+    if start:
+        threading.Thread(target=_refresh_join_rates, daemon=True).start()
+    return data, data is None
+
+
+def _cell(source, latest, last_ok_at, row_count):
+    """One dataset cell for one county.
+
+    state is what the UI paints:
+      ok             - latest run succeeded
+      failed         - latest run failed (error + last successful time kept)
+      running        - a sync_log row with no finished_at
+      manual         - sources.json says this layer has no public REST service
+      not_loaded     - configured, never synced
+      not_configured - no entry in sources.json for this county/dataset
+    """
+    manual = bool(source) and source.get("type") == "manual"
+    cell = {
+        "configured": bool(source),
+        "manual": manual,
+        "source_type": (source or {}).get("type") or ("rest" if source else None),
+        "note": (source or {}).get("note") if manual else None,
+        "row_count": row_count,
+        "last_success_at": last_ok_at,
+        "last_attempt_at": None,
+        "rows_fetched": None,
+        "error": None,
+    }
+    if latest is None:
+        cell["state"] = "manual" if manual else ("not_loaded" if source else "not_configured")
+        return cell
+    cell["last_attempt_at"] = latest["finished_at"] or latest["started_at"]
+    cell["rows_fetched"] = latest["rows_fetched"]
+    if latest["finished_at"] is None:
+        cell["state"] = "running"
+    elif latest["status"] == "success":
+        cell["state"] = "ok"
+    else:
+        cell["state"] = "failed"
+        cell["error"] = latest["error"]
+    return cell
+
+
+def _build_status_counties(conn):
+    """The whole payload except join rates (which are merged in per request)."""
+    sources = read_sources()
+
+    latest = {}
+    for r in conn.execute(
+        """
+        SELECT sl.county, sl.dataset_type, sl.started_at, sl.finished_at,
+               sl.status, sl.rows_fetched, sl.error
+        FROM sync_log sl
+        JOIN (SELECT county, dataset_type, MAX(id) AS max_id
+              FROM sync_log GROUP BY county, dataset_type) l
+          ON sl.id = l.max_id
+        """
+    ):
+        latest[(r["county"], r["dataset_type"])] = r
+
+    last_ok = {}
+    for r in conn.execute(
+        "SELECT county, dataset_type, MAX(finished_at) AS finished_at FROM sync_log "
+        "WHERE status = 'success' GROUP BY county, dataset_type"
+    ):
+        last_ok[(r["county"], r["dataset_type"])] = r["finished_at"]
+
+    counts = {(r["county"], r["dataset_type"]): r["row_count"] for r in conn.execute(
+        "SELECT county, dataset_type, COUNT(*) AS row_count FROM features "
+        "GROUP BY county, dataset_type"
+    )}
+    value_counts = {r["county"]: r["row_count"] for r in conn.execute(
+        "SELECT county, COUNT(*) AS row_count FROM parcel_values GROUP BY county"
+    )}
+
+    # DOR values are one statewide sync (dor_values.py) that writes a
+    # county='statewide' sync_log row plus per-county rows; the statewide row is
+    # the authoritative "when did the tax roll last land" time for every county.
+    dor_latest = latest.get(("statewide", "dor_values"))
+    dor_ok_at = last_ok.get(("statewide", "dor_values"))
+
+    known = set(sources) | {c for c, _ in counts} | set(value_counts)
+    known.discard("statewide")
+    priority = list(getattr(etl, "PRIORITY_COUNTIES", []))
+
+    rows = []
+    failing = 0
+    for county in sorted(known):
+        cfg = sources.get(county) or {}
+        datasets = {}
+        for dataset_type in STATUS_DATASETS:
+            datasets[dataset_type] = _cell(
+                cfg.get(dataset_type),
+                latest.get((county, dataset_type)),
+                last_ok.get((county, dataset_type)),
+                counts.get((county, dataset_type), 0),
+            )
+        # The per-county dor_values sync_log row (written by the same statewide
+        # run) is the fallback when a database predates the statewide row.
+        dor_cell = _cell(
+            {"type": "statewide"},
+            dor_latest or latest.get((county, "dor_values")),
+            dor_ok_at or last_ok.get((county, "dor_values")),
+            value_counts.get(county, 0),
+        )
+        dor_cell["rows_fetched"] = None  # statewide total; meaningless per county
+        dor_cell["scope"] = "statewide"
+        datasets["dor_values"] = dor_cell
+        failing += sum(1 for c in datasets.values() if c["state"] == "failed")
+        rows.append({
+            "county": county,
+            "in_sources": county in sources,
+            "priority": county in priority,
+            "datasets": datasets,
+        })
+
+    total_features = sum(counts.values())
+    return {
+        "counties": rows,
+        "dataset_types": ["dor_values"] + list(STATUS_DATASETS),
+        "priority_counties": priority,
+        "summary": {
+            "total_features": total_features,
+            "county_count": len(rows),
+            "counties_with_parcels": sum(
+                1 for r in rows if r["datasets"]["parcels"]["row_count"] > 0),
+            "valued_parcels": sum(value_counts.values()),
+            "counties_with_values": sum(1 for n in value_counts.values() if n > 0),
+            "last_success_at": conn.execute(
+                "SELECT MAX(finished_at) FROM sync_log WHERE status = 'success'"
+            ).fetchone()[0],
+            "failing_count": failing,
+        },
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.route("/api/status/counties")
+def api_status_counties():
+    """One row per county with the most recent update per dataset.
+
+    Cached in-process for STATUS_TTL seconds: the two GROUP BYs behind it cost
+    ~1.3 s, and the page polls every 20 s (as does every open tab).
+    """
+    with _status_lock:
+        cached = _status_cache["data"]
+        fresh = cached is not None and time.time() - _status_cache["at"] < STATUS_TTL
+    if not fresh:
+        data = _build_status_counties(get_db())
+        with _status_lock:
+            _status_cache["data"] = data
+            _status_cache["at"] = time.time()
+        cached = data
+
+    rates, pending = join_rates()
+    for row in cached["counties"]:
+        cell = row["datasets"]["parcels"]
+        r = (rates or {}).get(row["county"])
+        cell["joined_count"] = r["joined"] if r else None
+        cell["join_rate"] = (r["joined"] / r["total"]) if r and r["total"] else None
+    out = dict(cached)
+    out["join_rates_pending"] = pending
+    out["cached"] = fresh
+    return jsonify(out)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ const state = {
 
 let lastFeaturesTotal = null;
 let featureRowIndex = new Map(); // id -> {el, values}
-let statusRowIndex = new Map(); // "county|dataset" -> {el, values}
+let statusRowIndex = new Map(); // county -> {el, cells} on the Pipeline Status table
 let leafletMap = null;
 let geoLayer = null;
 let colorCache = new Map();
@@ -502,98 +502,231 @@ async function showDetail(id) {
 }
 
 /* ---------------------------------------------------------------------
- * Status panel
+ * Status panel: one row per county, one cell per dataset
+ *
+ * Fed by /api/status/counties, which pivots sync_log into a cell per
+ * (county, dataset) carrying the last successful time, the live row count and
+ * the current state (ok / failed / running / manual / not loaded).
  * ------------------------------------------------------------------- */
-function statusBadge(status) {
-  const cls = status === "success" ? "status-success" :
-    status === "failed" ? "status-failed" : "status-unknown";
-  return `<span class="status-tag ${cls}">${status || "unknown"}</span>`;
+const STATUS_COLUMNS = ["dor_values", "parcels", "zoning", "land_use", "future_land_use"];
+
+/* "2 h ago" for the cell, exact timestamp on hover. */
+function fmtAgo(iso) {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (isNaN(t)) return String(iso);
+  const secs = Math.max(0, (Date.now() - t) / 1000);
+  if (secs < 45) return "just now";
+  if (secs < 90) return "1 min ago";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(secs / 3600);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.floor(secs / 86400)} d ago`;
 }
 
-function renderStatusSummary(summary, changedKeys) {
+function absTime(iso) {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? String(iso) : `${iso}\n(${d.toLocaleString()} local)`;
+}
+
+function agoSpan(iso, prefix) {
+  return `<span class="ds-time" title="${esc(absTime(iso))}">${prefix || ""}${fmtAgo(iso)}</span>`;
+}
+
+function countText(n, noun) {
+  const word = noun || "row";
+  return `${Number(n).toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+}
+
+/* "98% valued" - the share of a county's parcel features that carry a DOR
+ * value. Computed on the server by a background scan, so it can be null on
+ * the first poll after the page loads. */
+function joinRateText(cell) {
+  if (!cell.row_count) return "";
+  if (cell.join_rate === null || cell.join_rate === undefined) {
+    return ` <span class="ds-pending" title="Counting joined parcels...">· join rate…</span>`;
+  }
+  const pct = cell.join_rate >= 0.995 && cell.join_rate < 1
+    ? "99" : Math.round(cell.join_rate * 100);
+  const cls = cell.join_rate >= 0.9 ? "" : " ds-warn";
+  return ` · <span class="${cls.trim()}" title="${esc(`${Number(cell.joined_count).toLocaleString()} of ${Number(cell.row_count).toLocaleString()} parcel features carry a DOR value`)}">${pct}% valued</span>`;
+}
+
+/* The identity of a cell for change detection: relative times tick over on
+ * their own, and re-flashing a cell for that alone would be noise. */
+function statusCellKey(cell) {
+  if (!cell) return "";
+  return [cell.state, cell.last_success_at, cell.last_attempt_at, cell.row_count,
+    cell.join_rate === null || cell.join_rate === undefined ? "" : cell.join_rate.toFixed(4)].join("|");
+}
+
+function statusCellHtml(cell, dataset) {
+  if (!cell) return '<span class="ds-none">—</span>';
+  const sub = (html) => `<span class="ds-sub">${html}</span>`;
+  // The DOR values column counts tax-roll parcels for the county, not rows of
+  // a county layer, so it gets its own noun.
+  const noun = dataset === "dor_values" ? "parcel" : "row";
+  const rows = cell.row_count ? countText(cell.row_count, noun) : `no ${noun}s`;
+  const rate = dataset === "parcels" ? joinRateText(cell) : "";
+
+  if (cell.state === "manual") {
+    return `<span class="ds-muted" title="${esc(cell.note || "No public REST layer; sources.json marks this dataset as manual.")}">manual</span>` +
+      (cell.row_count ? sub(rows) : "");
+  }
+  if (cell.state === "not_configured") {
+    return `<span class="ds-none" title="No source configured for this county/dataset in sources.json.">—</span>`;
+  }
+  if (cell.state === "not_loaded") {
+    return `<span class="ds-muted" title="${esc(`Configured in sources.json (${cell.source_type || "rest"}) but never synced.`)}">not loaded</span>`;
+  }
+  if (cell.state === "running") {
+    return `<span class="status-tag status-running" title="${esc(`Started ${absTime(cell.last_attempt_at)}`)}">syncing…</span>` +
+      sub(`started ${fmtAgo(cell.last_attempt_at)}`);
+  }
+  if (cell.state === "failed") {
+    return `<span class="status-tag status-failed" title="${esc(cell.error || "Sync failed.")}">failed</span>` +
+      sub((cell.last_success_at ? `last ok ${fmtAgo(cell.last_success_at)}` : "never succeeded") +
+        (cell.row_count ? ` · ${rows}` : ""));
+  }
+  // ok
+  return agoSpan(cell.last_success_at) + sub(rows + rate);
+}
+
+/* Sort state for the county table. Dataset columns sort by last successful
+ * time (most recent first), counties with nothing loaded last. */
+const statusSort = { key: "county", dir: "asc" };
+
+function statusSortValue(row, key) {
+  if (key === "county") return pretty(row.county).toLowerCase();
+  const cell = row.datasets[key];
+  const iso = cell && (cell.last_success_at || cell.last_attempt_at);
+  const t = iso ? Date.parse(iso) : NaN;
+  return isNaN(t) ? null : t;
+}
+
+function sortStatusRows(rows) {
+  const dir = statusSort.dir === "asc" ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const va = statusSortValue(a, statusSort.key);
+    const vb = statusSortValue(b, statusSort.key);
+    if (va === null && vb === null) return pretty(a.county).localeCompare(pretty(b.county));
+    if (va === null) return 1;   // never-loaded rows sink, in both directions
+    if (vb === null) return -1;
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    return pretty(a.county).localeCompare(pretty(b.county));
+  });
+}
+
+function renderStatusSummary(summary) {
   const el = document.getElementById("status-summary");
   if (!el.children.length) {
     el.innerHTML = `
-      <div class="stat"><span class="num" id="sum-rows"></span><span class="label">Total rows</span></div>
-      <div class="stat"><span class="num" id="sum-counties"></span><span class="label">Counties</span></div>
+      <div class="stat"><span class="num" id="sum-rows"></span><span class="label">Total features</span></div>
+      <div class="stat"><span class="num" id="sum-counties"></span><span class="label">Counties with parcels</span></div>
+      <div class="stat"><span class="num" id="sum-values"></span><span class="label">Valued parcels</span></div>
       <div class="stat"><span class="num" id="sum-fail"></span><span class="label">Failing sources</span></div>
       <div class="stat"><span class="num" id="sum-last"></span><span class="label">Last successful sync</span></div>
     `;
   }
-  setTextIfChanged(document.getElementById("sum-rows"), summary.total_rows.toLocaleString());
-  setTextIfChanged(document.getElementById("sum-counties"), String(summary.county_count));
+  setTextIfChanged(document.getElementById("sum-rows"), summary.total_features.toLocaleString());
+  setTextIfChanged(document.getElementById("sum-counties"),
+    `${summary.counties_with_parcels} / ${summary.county_count}`);
+  setTextIfChanged(document.getElementById("sum-values"), summary.valued_parcels.toLocaleString());
   setTextIfChanged(document.getElementById("sum-fail"), String(summary.failing_count));
-  setTextIfChanged(document.getElementById("sum-last"), fmtTime(summary.last_success_at));
+  const last = document.getElementById("sum-last");
+  last.title = absTime(summary.last_success_at);
+  setTextIfChanged(last, fmtAgo(summary.last_success_at));
 
   document.getElementById("conn-indicator").className =
     summary.failing_count > 0 ? "pill pill-bad" : "pill pill-ok";
 }
 
-function renderStatusTable(sources) {
+function buildStatusRowCells(row) {
+  const badge = row.priority
+    ? ' <span class="metro-badge" title="Priority metro county (etl.PRIORITY_COUNTIES)">metro</span>'
+    : "";
+  return [
+    { html: `<span class="county-name">${esc(pretty(row.county))}</span>${badge}`, key: row.county },
+  ].concat(STATUS_COLUMNS.map((d) => ({
+    html: statusCellHtml(row.datasets[d], d),
+    key: statusCellKey(row.datasets[d]),
+  })));
+}
+
+function renderStatusCounties(counties) {
   const tbody = document.getElementById("status-tbody");
-  const incomingKeys = new Set(sources.map((s) => `${s.county}|${s.dataset_type}`));
+  const rows = sortStatusRows(counties);
+  const seen = new Set();
 
-  // Remove rows for sources no longer present.
-  for (const [key, entry] of statusRowIndex) {
-    if (!incomingKeys.has(key)) {
-      entry.el.remove();
-      statusRowIndex.delete(key);
-    }
-  }
-
-  for (const s of sources) {
-    const key = `${s.county}|${s.dataset_type}`;
-    let entry = statusRowIndex.get(key);
+  rows.forEach((row, idx) => {
+    const cells = buildStatusRowCells(row);
+    let entry = statusRowIndex.get(row.county);
     if (!entry) {
       const tr = document.createElement("tr");
-      tbody.appendChild(tr);
-      entry = { el: tr, values: {} };
-      statusRowIndex.set(key, entry);
-    }
-    const values = {
-      county: s.county,
-      dataset_type: s.dataset_type,
-      status: s.status,
-      rows_fetched: s.rows_fetched,
-      current_row_count: s.current_row_count,
-      started_at: s.started_at,
-      finished_at: s.finished_at,
-    };
-    const cellsHtml = [
-      pretty(s.county),
-      pretty(s.dataset_type),
-      statusBadge(s.status),
-      s.rows_fetched === null || s.rows_fetched === undefined ? "—" : s.rows_fetched.toLocaleString(),
-      s.current_row_count.toLocaleString(),
-      fmtTime(s.started_at),
-      fmtTime(s.finished_at),
-    ];
-    if (entry.el.children.length === 0) {
-      entry.el.innerHTML = cellsHtml.map((c) => `<td>${c}</td>`).join("");
+      tr.dataset.county = row.county;
+      tr.innerHTML = cells.map((c) => `<td>${c.html}</td>`).join("");
+      entry = { el: tr, cells };
+      statusRowIndex.set(row.county, entry);
     } else {
-      const cells = entry.el.children;
-      let anyChanged = false;
-      Object.keys(values).forEach((k, i) => {
-        if (entry.values[k] !== values[k]) {
-          cells[i].innerHTML = cellsHtml[i];
-          flashCell(cells[i]);
-          anyChanged = true;
-        }
+      cells.forEach((c, i) => {
+        const td = entry.el.children[i];
+        if (entry.cells[i].html !== c.html) td.innerHTML = c.html;
+        if (entry.cells[i].key !== c.key) flashCell(td);   // real change, not a ticking clock
       });
+      entry.cells = cells;
     }
-    entry.values = values;
+    if (tbody.children[idx] !== entry.el) {
+      tbody.insertBefore(entry.el, tbody.children[idx] || null);
+    }
+    seen.add(row.county);
+  });
+
+  for (const [county, entry] of statusRowIndex) {
+    if (!seen.has(county)) { entry.el.remove(); statusRowIndex.delete(county); }
   }
 }
 
+function markStatusSortHeader() {
+  document.querySelectorAll("#status-counties-table th.sortable").forEach((th) => {
+    th.classList.toggle("sorted", th.dataset.sortKey === statusSort.key);
+    th.classList.toggle("sorted-asc", th.dataset.sortKey === statusSort.key && statusSort.dir === "asc");
+    th.classList.toggle("sorted-desc", th.dataset.sortKey === statusSort.key && statusSort.dir === "desc");
+  });
+}
+
+let lastStatusCounties = [];
+
 async function loadStatus() {
   try {
-    const data = await fetchJSON("/api/status");
+    const data = await fetchJSON("/api/status/counties");
+    lastStatusCounties = data.counties;
     renderStatusSummary(data.summary);
-    renderStatusTable(data.sources);
+    renderStatusCounties(data.counties);
+    markStatusSortHeader();
     setConn(true);
   } catch (e) {
     setConn(false);
   }
+}
+
+function initStatusEvents() {
+  document.querySelectorAll("#status-counties-table th.sortable").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      if (statusSort.key === key) {
+        statusSort.dir = statusSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        statusSort.key = key;
+        // Names read best A-Z; times read best newest-first.
+        statusSort.dir = key === "county" ? "asc" : "desc";
+      }
+      renderStatusCounties(lastStatusCounties);
+      markStatusSortHeader();
+    });
+  });
 }
 
 function setConn(ok) {
@@ -1284,6 +1417,7 @@ function initEvents() {
   });
 
   initValuesEvents();
+  initStatusEvents();
 
   document.querySelectorAll(".fullscreen-btn").forEach((btn) => {
     btn.addEventListener("click", () => toggleFullscreen(btn.dataset.fullscreenTarget));
@@ -1303,6 +1437,10 @@ function initEvents() {
 
 async function init() {
   initEvents();
+  // The status page has no dependency on the browse bootstrap below, and that
+  // bootstrap can take a while when a sync is hammering the database, so start
+  // its fetch now rather than after it.
+  const statusReady = loadStatus();
   await loadSources();
   await loadCombos();
   await loadFacets();
@@ -1310,7 +1448,7 @@ async function init() {
   // Open on the default view (map) now that the filter state is ready, using
   // the same path a click on the toggle takes so Leaflet sizes itself.
   setView(state.view);
-  await loadStatus();
+  await statusReady;
 
   // Live updates: poll status every 20s, and silently refresh the current
   // table page every 25s so new/changed rows and updated sync timestamps

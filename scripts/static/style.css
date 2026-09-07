@@ -150,6 +150,40 @@ td.status-badge span, .status-tag {
 .status-failed { background: var(--fail-bg); color: var(--fail); }
 .status-unknown, .status-running { background: var(--unknown-bg); color: var(--unknown); }
 
+/* Pipeline Status: one row per county, one cell per dataset.
+ * The table keeps a minimum width so narrow screens scroll it inside
+ * .table-wrap rather than scrolling (or squashing) the whole page. */
+.status-legend { margin: 0 0 12px; line-height: 1.6; }
+.status-counties { min-width: 900px; }
+.status-counties tbody tr { cursor: default; }
+.status-counties td { vertical-align: top; padding-top: 6px; padding-bottom: 6px; }
+.status-counties th.sortable { cursor: pointer; user-select: none; }
+.status-counties th.sortable:hover { color: var(--accent); }
+.status-counties th.sortable::after { content: "\2195"; opacity: .35; margin-left: 5px; font-size: 10px; }
+.status-counties th.sorted { color: var(--accent); }
+.status-counties th.sorted-asc::after { content: "\2191"; opacity: 1; }
+.status-counties th.sorted-desc::after { content: "\2193"; opacity: 1; }
+
+.status-counties .county-name { font-weight: 600; }
+.metro-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  vertical-align: 1px;
+}
+.ds-time { border-bottom: 1px dotted #94a3b8; cursor: help; }
+.ds-sub { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.ds-muted { color: var(--text-muted); cursor: help; }
+.ds-none { color: #cbd5e1; cursor: help; }
+.ds-pending { font-style: italic; }
+.ds-warn { color: #b45309; }
+
 .flash { animation: flash-bg 1.4s ease; }
 @keyframes flash-bg {
   0% { background-color: var(--highlight); }
