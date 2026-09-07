@@ -22,7 +22,7 @@
   </header>
   {% if demo %}
   <div class="demo-banner">
-    <b>Public demo.</b> This site serves a {{ demo.counties|length }}-county subset so it fits a free host; the full build covers all 67 Florida counties (10.5M valued parcels) and refreshes daily.
+    <b>Public demo.</b> This site serves {{ demo.counties|length }} complete counties so it fits a free host; the full build covers all 67 Florida counties (10.5M valued parcels) and refreshes daily.
     Counties here: {{ demo.counties|map('replace', '_', ' ')|map('title')|join(', ') }}.
     Source code and data provenance: <a href="https://github.com/RyanO-K/fl-county-data" target="_blank" rel="noopener">github.com/RyanO-K/fl-county-data</a>.
   </div>

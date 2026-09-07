@@ -255,12 +255,16 @@ Raw layer attributes are kept in `attributes_json`, but any key starting with `O
 
 ## Public demo deployment
 
-The full database is too large for a free host, so the public site runs a
-subset (whole counties, chosen smallest-first up to a size budget, boundaries
-rounded to 6 decimals). Everything else is identical to the local build.
+Live at https://fl-county-data.onrender.com (source: this repo). The full
+database is too large for a free host, so the public site runs a subset of
+whole counties (boundaries rounded to 6 decimals); everything else is
+identical to the local build. The current demo lists the 18 counties whose
+parcel boundaries were complete when it was built (~970 MB uncompressed,
+108 MB gzipped; Render's free build handled that size fine).
 
-1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --budget-mb 350`
-   then `gzip -k demo/fl_county_demo.db`.
+1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --counties baker,calhoun,...`
+   (or `--budget-mb N` to pick smallest-first; note `attributes_json` dominates
+   the size, so the estimate runs ~3x low) then `gzip -k demo/fl_county_demo.db`.
 2. Attach the `.gz` to the GitHub Release tagged `demo-data`
    (`gh release upload demo-data demo/fl_county_demo.db.gz --clobber`).
 3. `render.yaml` defines the Render free web service. Its build step runs
