@@ -248,6 +248,10 @@ geometry-derived parcel acreage to `dor` where land square footage exists.
 
 Layers whose `maxRecordCount` is under 1000 are fetched by object-id batches (`returnIdsOnly`, then `OBJECTID IN (...)`) instead of `resultOffset` paging: offset paging on those servers slows down with depth (Orange County: 1.5 s per 200-row page at the start, 8 s past 80k rows), while id batches cost the same at any depth. Batches run four at a time (`etl.FETCH_WORKERS`) for both county layers and the statewide-geometry fallback; results are written in order. `"no_offset_pagination": true` forces id batches for a source.
 
+### Parallel counties
+
+`load_all.py` runs counties concurrently (`COUNTY_WORKERS`, default 4, env `FL_COUNTY_WORKERS`) in both phases: every county is a different server, so wall clock is bounded by each server's speed. Each worker thread has its own SQLite connection; WAL serialises the short write batches and the 60 s busy timeout covers the longest single write (a metro county's value join, ~15 s). Combined with the 4 in-flight fetches per county, total concurrency is 16 requests, spread over 4 different servers.
+
 ### Run lock
 
 `etl.py` (the scheduled daily refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.

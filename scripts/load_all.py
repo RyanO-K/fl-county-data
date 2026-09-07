@@ -1,17 +1,29 @@
 """Bulk loader that drives the existing ETL (etl.sync_source) across all 67
-counties, in two phases, without touching sources.json / etl.py / dor_values.py.
+counties, in two phases, several counties at a time.
 
 Usage:
     python -u scripts/load_all.py phase1        # all non-parcel datasets, all counties
-    python -u scripts/load_all.py phase2        # parcels, smallest county first, disk-aware
+    python -u scripts/load_all.py phase2        # parcels: priority metros first, then smallest first
+
+Counties run in parallel (COUNTY_WORKERS, env FL_COUNTY_WORKERS): every county
+is a different server, so the wall clock is dominated by each server's own
+speed, not ours. SQLite serialises the writes (WAL, one writer at a time) but
+each write is a short batch, and the 60 s busy timeout covers the longest
+one (a metro county's value join, ~15 s). Each worker thread opens its own
+connection. Within a county, page/batch fetches are themselves parallel
+(etl.FETCH_WORKERS), so total in-flight requests are COUNTY_WORKERS x
+FETCH_WORKERS; keep the product modest to stay a polite client.
 
 This module only orchestrates: all HTTP/pagination/retry/format logic lives in
 etl.sync_source, which is called unmodified.
 """
 import ctypes
 import json
+import os
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
@@ -26,6 +38,9 @@ NON_PARCEL_TYPES = ("zoning", "land_use", "future_land_use")
 
 MIN_FREE_BYTES = 2.0 * 1024 ** 3   # stop threshold: 2.0 GB free
 BYTES_PER_PARCEL_EST = 1.5 * 1024  # conservative estimate for sizing decisions
+COUNTY_WORKERS = int(os.environ.get("FL_COUNTY_WORKERS", "4"))
+
+_disk_lock = threading.Lock()   # disk checks + the shared tallies
 
 
 def free_bytes(drive=None):
@@ -39,58 +54,76 @@ def load_sources():
     return json.loads(SOURCES_PATH.read_text(encoding="utf-8"))
 
 
+def _last_sync(conn, before, county, dataset_type):
+    """The sync_log row sync_source just wrote (it logs success or failure itself)."""
+    return conn.execute(
+        "SELECT status, rows_fetched FROM sync_log WHERE id > ? "
+        "AND county=? AND dataset_type=? ORDER BY id DESC LIMIT 1",
+        (before, county, dataset_type),
+    ).fetchone()
+
+
+def run_pool(label, jobs, fn):
+    """Run fn(job) for every job with COUNTY_WORKERS threads, in submission
+    order (priority first). Returns the list of results in job order."""
+    etl.log(f"  {label}: {len(jobs)} counties, {COUNTY_WORKERS} at a time")
+    with ThreadPoolExecutor(max_workers=COUNTY_WORKERS, thread_name_prefix="county") as pool:
+        return list(pool.map(fn, jobs))
+
+
+# --------------------------------------------------------------------------- phase 1
 def run_phase1():
     sources = load_sources()
-    conn = etl.get_conn()
     etl.log("=== load_all phase1 (non-parcel datasets, all counties) started ===")
     t0 = time.time()
-    ok = 0
-    failed = 0
-    skipped = 0
-    total_rows = 0
-    for county in sorted(sources.keys()):
+
+    def load_county(county):
         datasets = sources[county]
-        county_did_anything = False
-        for dataset_type in NON_PARCEL_TYPES:
-            source = datasets.get(dataset_type)
-            if not source:
-                continue
-            if source.get("type") == "manual":
-                skipped += 1
-                etl.log(f"[SKIP] {county}/{dataset_type}: manual source")
-                continue
-            county_did_anything = True
-            before = conn.execute(
-                "SELECT COALESCE(MAX(id),0) FROM sync_log"
-            ).fetchone()[0]
-            try:
-                etl.sync_source(conn, county, dataset_type, source)
-                # sync_source logs its own sync_log row (success or failed);
-                # inspect the row it just wrote to tally rows/status here.
-                row = conn.execute(
-                    "SELECT status, rows_fetched FROM sync_log WHERE id > ? "
-                    "AND county=? AND dataset_type=? ORDER BY id DESC LIMIT 1",
-                    (before, county, dataset_type),
-                ).fetchone()
-                if row and row[0] == "success":
-                    ok += 1
-                    total_rows += row[1] or 0
-                else:
-                    failed += 1
-            except Exception as exc:  # noqa: BLE001 - never let one source stop the run
-                failed += 1
-                etl.log(f"[FAIL] {county}/{dataset_type}: unhandled exception {exc}")
-        if county_did_anything:
-            try:
-                etl.backfill_acreage(conn, county)
-            except Exception as exc:  # noqa: BLE001
-                etl.log(f"[FAIL] {county}: backfill_acreage raised {exc}")
-    conn.close()
+        tally = {"ok": 0, "failed": 0, "skipped": 0, "rows": 0}
+        conn = etl.get_conn()
+        try:
+            did_anything = False
+            for dataset_type in NON_PARCEL_TYPES:
+                source = datasets.get(dataset_type)
+                if not source:
+                    continue
+                if source.get("type") == "manual":
+                    tally["skipped"] += 1
+                    etl.log(f"[SKIP] {county}/{dataset_type}: manual source")
+                    continue
+                did_anything = True
+                before = conn.execute("SELECT COALESCE(MAX(id),0) FROM sync_log").fetchone()[0]
+                try:
+                    etl.sync_source(conn, county, dataset_type, source)
+                    row = _last_sync(conn, before, county, dataset_type)
+                    if row and row[0] == "success":
+                        tally["ok"] += 1
+                        tally["rows"] += row[1] or 0
+                    else:
+                        tally["failed"] += 1
+                except Exception as exc:  # noqa: BLE001 - never let one source stop the run
+                    tally["failed"] += 1
+                    etl.log(f"[FAIL] {county}/{dataset_type}: unhandled exception {exc}")
+            if did_anything:
+                try:
+                    etl.backfill_acreage(conn, county)
+                except Exception as exc:  # noqa: BLE001
+                    etl.log(f"[FAIL] {county}: backfill_acreage raised {exc}")
+        finally:
+            conn.close()
+        return tally
+
+    results = run_pool("phase1", sorted(sources.keys()), load_county)
+    ok = sum(r["ok"] for r in results)
+    failed = sum(r["failed"] for r in results)
+    skipped = sum(r["skipped"] for r in results)
+    total_rows = sum(r["rows"] for r in results)
     elapsed = (time.time() - t0) / 60
     etl.log(f"=== load_all phase1 finished: {ok} ok, {failed} failed, {skipped} skipped (manual), "
             f"{total_rows:,} rows, {elapsed:.1f} min ===")
 
 
+# --------------------------------------------------------------------------- phase 2
 def get_parcel_count(source):
     """returnCountOnly probe against the layer's /query endpoint, honoring
     verify_ssl:false the same way etl.py does."""
@@ -131,14 +164,18 @@ def run_phase2():
         parcel_sources[county] = source
 
     etl.log(f"=== load_all phase2: counting parcels for {len(parcel_sources)} counties ===")
-    counts = []
-    for county, source in parcel_sources.items():
+
+    def count_one(item):
+        county, source = item
         try:
             n = get_parcel_count(source)
-            counts.append((county, n, source))
             etl.log(f"  {county}: {n:,} parcels")
+            return (county, n, source)
         except Exception as exc:  # noqa: BLE001
             etl.log(f"[FAIL] {county}: could not get parcel count ({exc}); skipping from phase2 ordering")
+            return None
+
+    counts = [c for c in run_pool("phase2 counts", list(parcel_sources.items()), count_one) if c]
 
     # Priority metros first (in their listed order), then everything else
     # smallest-first so many counties become usable early.
@@ -146,78 +183,64 @@ def run_phase2():
     counts.sort(key=lambda t: (rank.get(t[0], len(rank)), t[1] if t[0] not in rank else 0))
     etl.log("  phase2 order: " + ", ".join(c for c, _, _ in counts))
 
-    conn = etl.get_conn()
     t0 = time.time()
-    ok = 0
-    failed = 0
-    total_rows = 0
-    loaded = []
-    skipped_disk = []
 
-    stopped = False
-    for idx, (county, n, source) in enumerate(counts):
-        if stopped:
-            skipped_disk.append((county, n))
-            continue
-        free = free_bytes()
+    def load_county(item):
+        county, n, source = item
+        result = {"county": county, "status": "failed", "rows": 0}
         est_size = n * BYTES_PER_PARCEL_EST
-        if free < MIN_FREE_BYTES or (free - est_size) < MIN_FREE_BYTES:
-            skipped_disk.append((county, n))
-            if county in etl.PRIORITY_COUNTIES:
-                etl.log(f"[SKIP] phase2: free={free/1024**3:.2f}GB, priority county {county} "
-                        f"({n:,} parcels, est {est_size/1024**3:.2f}GB) would breach the 2.0GB floor; "
-                        "continuing with smaller counties")
-                continue
-            etl.log(f"[STOP] phase2: free={free/1024**3:.2f}GB, next county {county} "
-                    f"({n:,} parcels, est {est_size/1024**3:.2f}GB) would breach the 2.0GB floor; stopping "
-                    f"(remaining {len(counts) - idx} counties, ascending by size, will only get bigger)")
-            stopped = True
-            continue
-        have = conn.execute(
-            "SELECT COUNT(*) FROM features WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()[0]
-        if n and have >= 0.98 * n:
-            etl.log(f"[SKIP] {county}/parcels: already loaded ({have:,} of {n:,} rows present)")
-            ok += 1
-            loaded.append((county, have))
-            continue
-        etl.log(f"--- phase2: loading {county} ({n:,} parcels), free={free/1024**3:.2f}GB ---")
-        before = conn.execute("SELECT COALESCE(MAX(id),0) FROM sync_log").fetchone()[0]
+        with _disk_lock:
+            free = free_bytes()
+            if free < MIN_FREE_BYTES or (free - est_size) < MIN_FREE_BYTES:
+                etl.log(f"[SKIP] phase2: free={free/1024**3:.2f}GB, {county} ({n:,} parcels, "
+                        f"est {est_size/1024**3:.2f}GB) would breach the 2.0GB floor")
+                result["status"] = "skipped_disk"
+                return result
+        conn = etl.get_conn()
         try:
-            etl.sync_source(conn, county, "parcels", source)
-            row = conn.execute(
-                "SELECT status, rows_fetched FROM sync_log WHERE id > ? "
-                "AND county=? AND dataset_type='parcels' ORDER BY id DESC LIMIT 1",
-                (before, county),
-            ).fetchone()
-            if row and row[0] == "success":
-                ok += 1
-                total_rows += row[1] or 0
-                loaded.append((county, row[1] or 0))
-            else:
-                failed += 1
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            etl.log(f"[FAIL] {county}/parcels: unhandled exception {exc}")
-        try:
-            etl.backfill_acreage(conn, county)
-            dor_values.apply_values_to_features(conn, county)
-            have, valued = conn.execute(
-                "SELECT COUNT(*), SUM(total_value IS NOT NULL) FROM features "
-                "WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()
-            if have and (valued or 0) < 0.5 * have:
-                # Almost always a wrong key_field (e.g. an internal id instead of the
-                # parcel number): the boundaries load fine but nothing joins.
-                etl.log(f"[WARN] {county}/parcels: only {valued or 0:,} of {have:,} parcels matched DOR values; "
-                        f"check key_field in sources.json")
-        except Exception as exc:  # noqa: BLE001
-            etl.log(f"[FAIL] {county}: post-load backfill/apply_values raised {exc}")
+            have = conn.execute(
+                "SELECT COUNT(*) FROM features WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()[0]
+            if n and have >= 0.98 * n:
+                etl.log(f"[SKIP] {county}/parcels: already loaded ({have:,} of {n:,} rows present)")
+                result.update(status="already", rows=have)
+                return result
+            etl.log(f"--- phase2: loading {county} ({n:,} parcels), free={free/1024**3:.2f}GB ---")
+            before = conn.execute("SELECT COALESCE(MAX(id),0) FROM sync_log").fetchone()[0]
+            try:
+                etl.sync_source(conn, county, "parcels", source)
+                row = _last_sync(conn, before, county, "parcels")
+                if row and row[0] == "success":
+                    result.update(status="ok", rows=row[1] or 0)
+            except Exception as exc:  # noqa: BLE001
+                etl.log(f"[FAIL] {county}/parcels: unhandled exception {exc}")
+            try:
+                etl.backfill_acreage(conn, county)
+                dor_values.apply_values_to_features(conn, county)
+                have, valued = conn.execute(
+                    "SELECT COUNT(*), SUM(total_value IS NOT NULL) FROM features "
+                    "WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()
+                if have and (valued or 0) < 0.5 * have:
+                    # Almost always a wrong key_field (e.g. an internal id instead of the
+                    # parcel number): the boundaries load fine but nothing joins.
+                    etl.log(f"[WARN] {county}/parcels: only {valued or 0:,} of {have:,} parcels matched DOR values; "
+                            f"check key_field in sources.json")
+            except Exception as exc:  # noqa: BLE001
+                etl.log(f"[FAIL] {county}: post-load backfill/apply_values raised {exc}")
+        finally:
+            conn.close()
+        return result
 
-    conn.close()
+    results = run_pool("phase2", counts, load_county)
+    ok = [r for r in results if r["status"] in ("ok", "already")]
+    failed = [r["county"] for r in results if r["status"] == "failed"]
+    skipped_disk = [r["county"] for r in results if r["status"] == "skipped_disk"]
+    total_rows = sum(r["rows"] for r in results if r["status"] == "ok")
     elapsed = (time.time() - t0) / 60
     free = free_bytes()
-    etl.log(f"=== load_all phase2 finished: {ok} ok, {failed} failed, {total_rows:,} rows, "
+    etl.log(f"=== load_all phase2 finished: {len(ok)} ok, {len(failed)} failed, {total_rows:,} rows, "
             f"{elapsed:.1f} min, free={free/1024**3:.2f}GB ===")
-    etl.log(f"    loaded counties: {loaded}")
+    etl.log(f"    loaded counties: {[(r['county'], r['rows']) for r in ok]}")
+    etl.log(f"    failed: {failed}")
     etl.log(f"    skipped for disk: {skipped_disk}")
 
 
