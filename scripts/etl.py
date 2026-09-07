@@ -357,14 +357,23 @@ def backfill_city(conn, county=None):
 # pattern are dropped from every layer's raw attributes on ingest; a source can
 # list extra layer-specific keys under "exclude_fields" in sources.json.
 PRIVATE_FIELD_RE = re.compile(
-    r"^(OWN|OWNER|OWNERS|OWNNAME|OWN_NAME|MAIL|MAILTO|MAILING|FIDU|TAXPAYER)(_|\d|$)"
-    r"|^O(NAME|ADDR\d?|CITY|STATE|ZIP|ZIPCD)$", re.I)
+    r"^(OWN|OWNER|MAIL|FIDU|TAXPAYER)"          # any spelling: OWNERNAME, OWNERADD1, OwnerCity, MAILADD, MAIL_ZIP ...
+    r"|^[MO](NAME|ADDR\d?|ADD\d?|CITY|STATE|ZIP|ZIPCD|COUNTRY)$"  # DOR/FGDL/SWFWMD mailing shorthand (MCITY, OADDR1 ...)
+    r"|^(CREATOR|EDITOR)_?NAME$|^(CASE_)?CONTACT$",  # staff/applicant names on planning layers
+    re.I)
+# Non-personal keys that happen to start with OWN: ownership class, not a person.
+PRIVATE_FIELD_ALLOW = {"OWNTYPE", "OWN_TYPE", "OWNERTYPE", "OWNER_TYPE", "OWNERSHIP", "OWNERSHIP_TYPE"}
+
+
+def is_private_field(key):
+    k = key.upper()
+    return k not in PRIVATE_FIELD_ALLOW and bool(PRIVATE_FIELD_RE.search(k))
 
 
 def _public_props(props, exclude_fields=()):
     ex = {k.upper() for k in (exclude_fields or ())}
     return {k: v for k, v in props.items()
-            if k.upper() not in ex and not PRIVATE_FIELD_RE.search(k)}
+            if k.upper() not in ex and not is_private_field(k)}
 
 
 def _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields=()):

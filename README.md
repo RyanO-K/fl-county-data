@@ -239,7 +239,7 @@ geometry-derived parcel acreage to `dor` where land square footage exists.
 
 ### Privacy: owner and mailing fields are not stored
 
-Raw layer attributes are kept in `attributes_json`, but any key starting with `OWN`, `OWNER`, `MAIL`, `MAILTO` or `MAILING` is dropped on ingest, and a source can list further keys under `"exclude_fields"` in `sources.json` (Polk's Property Appraiser layer excludes `NAME` and `MAIL_ADDR_*`). The statewide DOR values table never pulls owner columns.
+Raw layer attributes are kept in `attributes_json`, but any key starting with `OWN`, `OWNER`, `MAIL`, `FIDU` or `TAXPAYER` (any spelling, e.g. `OWNERNAME`, `OwnerAddress1`, `MAILADD`), the DOR/FGDL mailing shorthand (`MCITY`, `MZIP`, `OADDR1` ...), and staff/applicant name fields (`EDITOR_NAME`, `CASE_CONTACT`) are dropped on ingest (`etl.is_private_field`; `OWNTYPE`-style ownership-class keys are kept), and a source can list further keys under `"exclude_fields"` in `sources.json` (Polk's Property Appraiser layer excludes `NAME` and `MAIL_ADDR_*`). The statewide DOR values table never pulls owner columns.
 
 ### Map rendering (uncapped)
 

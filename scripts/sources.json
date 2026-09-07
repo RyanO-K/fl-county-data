@@ -1375,7 +1375,7 @@
   "suwannee": {
     "parcels": {
       "url": "https://services6.arcgis.com/B8iKcMs83hgqommE/arcgis/rest/services/Parcels_Suwannee_2024/FeatureServer/0",
-      "key_field": "PARCELID",
+      "key_field": "PIN",
       "field_map": {
         "acreage": "ACRES",
         "zoning_code": "ZONING",
@@ -1385,7 +1385,7 @@
         "total_value": "ASSD_TOT",
         "city": "SCITY"
       },
-      "notes": "Suwannee County's own official hosted parcels layer (2024 vintage, owner account countyofsuwannee), DOR-derived schema shared with the Levy/Sumter SWFWMD mirrors. Zoning is embedded in this same layer (ZONING field) - no separate/dedicated zoning REST service was found for Suwannee County. The Property Appraiser's public site (suwannee.floridapa.com/GIS/, suwanneepa.com/GIS_Support/) offers only an interactive map viewer with no exposed API."
+      "notes": "PARCELID/ALTKEY/FOLIONUM are null on this layer; PIN carries the DOR parcel number (matches the statewide roll key exactly; a handful of rows have an empty PIN and are skipped). Suwannee County's own official hosted parcels layer (2024 vintage, owner account countyofsuwannee), DOR-derived schema shared with the Levy/Sumter SWFWMD mirrors. Zoning is embedded in this same layer (ZONING field) - no separate/dedicated zoning REST service was found for Suwannee County. The Property Appraiser's public site (suwannee.floridapa.com/GIS/, suwanneepa.com/GIS_Support/) offers only an interactive map viewer with no exposed API."
     }
   },
   "taylor": {
