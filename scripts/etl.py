@@ -80,6 +80,24 @@ def log(msg):
         f.write(line + "\n")
 
 
+# Covering indexes for the filter dropdowns (/api/facets: DISTINCT code+desc per
+# dataset). Not in SCHEMA on purpose: creating them on the full table takes
+# minutes and would hold the write lock against a running loader. The demo
+# builder creates them; run ensure_facet_indexes() on the main DB when idle.
+FACET_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_features_zoning ON features(dataset_type, zoning_code, zoning_desc)",
+    "CREATE INDEX IF NOT EXISTS idx_features_landuse ON features(dataset_type, land_use_code, land_use_desc)",
+    "CREATE INDEX IF NOT EXISTS idx_features_county_zoning ON features(county, dataset_type, zoning_code, zoning_desc)",
+    "CREATE INDEX IF NOT EXISTS idx_features_county_landuse ON features(county, dataset_type, land_use_code, land_use_desc)",
+)
+
+
+def ensure_facet_indexes(conn):
+    for sql in FACET_INDEXES:
+        conn.execute(sql)
+    conn.commit()
+
+
 def normalize_key(pid):
     """Parcel ids differ cosmetically between county layers and the DOR roll
     (spaces, dashes, dots). Compare on a stripped, upper-cased form. Stored

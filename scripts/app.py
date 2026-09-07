@@ -219,18 +219,18 @@ def api_counties():
     return jsonify([dict(r) for r in rows])
 
 
-@app.route("/api/facets")
-def api_facets():
-    """Distinct zoning/land-use codes for the current county+dataset_type
-    selection, to populate filter dropdowns with real values."""
-    conn = get_db()
-    base_where, base_params = build_filters(request.args)
+FACETS_TTL = 600  # seconds; the dropdown value sets change only when the ETL runs
+_facets_cache = {}
+_facets_lock = threading.Lock()
+
+
+def compute_facets(conn, args):
+    """Distinct zoning/land-use codes for a filter selection."""
+    base_where, base_params = build_filters(args)
 
     def nonempty_clause(col):
         extra = f"{col} IS NOT NULL AND {col} != ''"
-        if base_where:
-            return base_where + " AND " + extra
-        return "WHERE " + extra
+        return (base_where + " AND " + extra) if base_where else ("WHERE " + extra)
 
     zoning_rows = conn.execute(
         f"SELECT DISTINCT zoning_code, zoning_desc FROM features "
@@ -242,11 +242,48 @@ def api_facets():
         f"{nonempty_clause('land_use_code')} ORDER BY land_use_code LIMIT 500",
         base_params,
     ).fetchall()
-
-    return jsonify({
+    return {
         "zoning_codes": [dict(r) for r in zoning_rows],
         "land_use_codes": [dict(r) for r in land_use_rows],
-    })
+    }
+
+
+def cached_facets(conn, args):
+    key = tuple(sorted((k, v) for k, v in args.items() if v not in (None, "")))
+    now = time.time()
+    with _facets_lock:
+        hit = _facets_cache.get(key)
+        if hit and now - hit[0] < FACETS_TTL:
+            return hit[1]
+    data = compute_facets(conn, args)
+    with _facets_lock:
+        _facets_cache[key] = (now, data)
+    return data
+
+
+def warm_facets():
+    """The 'all counties' facets scan the whole features table (50 s on a
+    small host), so compute them once in the background at startup."""
+    try:
+        conn = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True, timeout=30)
+        conn.row_factory = sqlite3.Row
+        for dt in ("", "parcels", "zoning", "land_use", "future_land_use"):
+            args = {"dataset_type": dt} if dt else {}
+            cached_facets(conn, args)
+        conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"facets warm-up failed: {exc}")
+
+
+threading.Thread(target=warm_facets, name="facets-warmup", daemon=True).start()
+
+
+@app.route("/api/facets")
+def api_facets():
+    """Distinct zoning/land-use codes for the current county+dataset_type
+    selection, to populate filter dropdowns with real values. Cached per
+    filter combination for FACETS_TTL seconds."""
+    return jsonify(cached_facets(get_db(), request.args))
 
 
 @app.route("/api/features")

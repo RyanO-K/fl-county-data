@@ -161,6 +161,8 @@ def main():
         ("parcel_attrs", "off" if drop_parcel_attrs else "keep"),
     ])
     dst.commit()
+    etl.ensure_facet_indexes(dst)
+    print("facet indexes built")
     dst.execute("VACUUM")
     dst.close()
     print(f"wrote {out} ({out.stat().st_size/1048576:.0f} MB)")
