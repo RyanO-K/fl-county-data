@@ -286,12 +286,26 @@ def api_features():
     ).fetchall()
 
     return jsonify({
-        "rows": [dict(r) for r in rows],
+        "rows": [row_dict(r) for r in rows],
         "total": total,
         "page": page,
         "per_page": per_page,
         "total_pages": max(1, (total + per_page - 1) // per_page),
     })
+
+
+
+JSON_COLUMNS = ("geometry_geojson", "attributes_json")
+
+
+def row_dict(row):
+    """sqlite3.Row -> dict with the compressed JSON columns decoded to text,
+    which is what the front end has always received."""
+    d = dict(row)
+    for k in JSON_COLUMNS:
+        if k in d:
+            d[k] = etl.decode_json(d[k])
+    return d
 
 
 MAX_GEOMETRY_CHUNK = 5000
@@ -324,7 +338,7 @@ def api_features_geometry():
         f"SELECT {cols} FROM features {clause} ORDER BY id LIMIT ?",
         params + [after_id, limit],
     ).fetchall()
-    rows = [dict(r) for r in rows]
+    rows = [row_dict(r) for r in rows]
     return jsonify({
         "rows": rows,
         "total": total,
@@ -342,7 +356,7 @@ def api_feature_detail(feature_id):
     ).fetchone()
     if row is None:
         return jsonify({"error": "not found"}), 404
-    return jsonify(dict(row))
+    return jsonify(row_dict(row))
 
 
 @app.route("/api/values")
@@ -444,7 +458,7 @@ def api_value_detail(county, parcel_id):
             (county, row["parcel_key"]),
         ).fetchone()
     out["feature_id"] = geom["id"] if geom else None
-    out["geometry_geojson"] = geom["geometry_geojson"] if geom else None
+    out["geometry_geojson"] = etl.decode_json(geom["geometry_geojson"]) if geom else None
     return jsonify(out)
 
 

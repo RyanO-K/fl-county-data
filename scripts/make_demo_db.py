@@ -37,7 +37,7 @@ def simplify_geom(gj, places=6):
     if not gj:
         return gj
     try:
-        g = json.loads(gj)
+        g = json.loads(etl.decode_json(gj))
     except (TypeError, ValueError):
         return gj
 
@@ -58,18 +58,36 @@ def simplify_geom(gj, places=6):
         g["coordinates"] = [ring(r) for r in g["coordinates"]]
     elif t == "MultiPolygon":
         g["coordinates"] = [[ring(r) for r in poly] for poly in g["coordinates"]]
-    return json.dumps(g, separators=(",", ":"))
+    return etl.encode_json(g)
 
 
-def county_sizes(src):
-    rows = src.execute(
-        "SELECT county, SUM(COALESCE(length(geometry_geojson),0) + COALESCE(length(attributes_json),0)) "
-        "FROM features GROUP BY county").fetchall()
-    feat = {c: n for c, n in rows}
-    vals = dict(src.execute("SELECT county, COUNT(*)*110 FROM parcel_values GROUP BY county").fetchall())
-    counties = set(feat) | set(vals)
-    # geometry shrinks ~3x after rounding; attributes/values do not
-    return {c: feat.get(c, 0) / 2.5 + vals.get(c, 0) for c in counties}
+def recompress_attrs(aj):
+    """Attributes: decode whatever the source row holds and store compressed."""
+    return etl.encode_json(etl.decode_json(aj)) if aj is not None else None
+
+
+def county_sizes(src, require_parcels=False):
+    """Estimated on-disk bytes per county in the demo. Source rows may be plain
+    text (pre-codec) or already compressed; measured ratios: rounded+zlib
+    geometry ~4.5x, zlib attributes ~2.3x, plus ~1.3x SQLite page overhead;
+    parcel_values rows are ~320 B each including their three indexes."""
+    geo = {}
+    attr = {}
+    for county, g, a, gsz, asz in src.execute(
+            "SELECT county, geometry_geojson, attributes_json, "
+            "SUM(COALESCE(length(geometry_geojson),0)), SUM(COALESCE(length(attributes_json),0)) "
+            "FROM features GROUP BY county"):
+        # a blob sample tells us whether that county's rows are already compressed
+        geo[county] = gsz if isinstance(g, bytes) else gsz / 4.5
+        attr[county] = asz if isinstance(a, bytes) else asz / 2.3
+    vals = dict(src.execute("SELECT county, COUNT(*)*320 FROM parcel_values GROUP BY county").fetchall())
+    counties = set(geo) | set(vals)
+    if require_parcels:
+        # complete = at least 90% as many boundary rows as the county has valued parcels
+        counties &= {c for (c,) in src.execute(
+            "SELECT f.county FROM features f WHERE f.dataset_type='parcels' GROUP BY f.county "
+            "HAVING COUNT(*) >= 0.9 * (SELECT COUNT(*) FROM parcel_values pv WHERE pv.county = f.county)")}
+    return {c: (geo.get(c, 0) + attr.get(c, 0)) * 1.3 + vals.get(c, 0) for c in counties}
 
 
 def main():
@@ -78,17 +96,23 @@ def main():
     ap.add_argument("--budget-mb", type=float, default=350)
     ap.add_argument("--counties", help="comma-separated county keys (overrides budget selection)")
     ap.add_argument("--source", default=str(etl.DB_PATH))
+    ap.add_argument("--require-parcels", action="store_true",
+                    help="budget mode: only consider counties whose parcel boundaries are loaded")
     args = ap.parse_args()
 
     src = sqlite3.connect(f"file:{Path(args.source).as_posix()}?mode=ro", uri=True, timeout=120)
     if args.counties:
         chosen = [c.strip() for c in args.counties.split(",") if c.strip()]
     else:
-        sizes = county_sizes(src)
+        sizes = county_sizes(src, args.require_parcels)
         budget = args.budget_mb * 1024 * 1024
         chosen, used = [], 0
-        for c, est in sorted(sizes.items(), key=lambda kv: kv[1]):
+        # Priority metros (Tampa Bay, Orlando) first in listed order, then smallest-first.
+        rank = {c: i for i, c in enumerate(etl.PRIORITY_COUNTIES)}
+        order = sorted(sizes.items(), key=lambda kv: (rank.get(kv[0], len(rank)), kv[1]))
+        for c, est in order:
             if used + est > budget:
+                print(f"  skip {c}: est {est/1048576:.0f} MB would exceed budget ({used/1048576:.0f} MB used)")
                 continue
             chosen.append(c)
             used += est
@@ -110,13 +134,15 @@ def main():
     ph = ",".join("?" * len(chosen))
     cols = [r[1] for r in src.execute("PRAGMA table_info(features)")]
     gi = cols.index("geometry_geojson")
+    ai = cols.index("attributes_json")
     n = 0
     cur = src.execute(f"SELECT {', '.join(cols)} FROM features WHERE county IN ({ph})", chosen)
     while True:
         rows = cur.fetchmany(2000)
         if not rows:
             break
-        rows = [tuple(simplify_geom(v) if i == gi else v for i, v in enumerate(r)) for r in rows]
+        rows = [tuple(simplify_geom(v) if i == gi else recompress_attrs(v) if i == ai else v
+                      for i, v in enumerate(r)) for r in rows]
         dst.executemany(f"INSERT INTO features ({', '.join(cols)}) VALUES ({','.join('?'*len(cols))})", rows)
         n += len(rows)
     print(f"features: {n:,}")
@@ -140,7 +166,7 @@ def main():
     dst.executemany("INSERT INTO demo_info VALUES (?,?)", [
         ("counties", json.dumps(sorted(chosen))),
         ("built_from", "full 67-county database"),
-        ("note", "Demo subset: whole counties, geometry rounded to 6 decimals."),
+        ("note", "Demo subset: whole counties, geometry rounded to 6 decimals, JSON columns zlib-compressed."),
     ])
     dst.commit()
     dst.execute("VACUUM")

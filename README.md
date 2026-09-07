@@ -232,6 +232,14 @@ until then it says so.
 geometry acreage for anything still missing it; the DOR join upgrades
 geometry-derived parcel acreage to `dor` where land square footage exists.
 
+### Compressed JSON columns
+
+`geometry_geojson` and `attributes_json` are stored as zlib blobs (`etl.encode_json` / `etl.decode_json`), about 2.3x smaller for attributes and 4.5x for rounded geometry at 0.07 ms per row. Cells are self-describing (a zlib stream starts with `0x78`, JSON text never does), so plain-text rows from before the change still decode; `scripts/compress_db.py [--vacuum]` rewrites them in place under the run lock. The API decodes on the way out, so the front end still receives JSON text.
+
+### Priority counties
+
+`etl.PRIORITY_COUNTIES` lists the Tampa Bay and Orlando metro counties (Hillsborough, Pinellas, Pasco, Hernando, Orange, Seminole, Osceola, Lake, then the ring: Polk, Manatee, Sarasota, Citrus, Sumter, Volusia, Brevard). `load_all.py phase2` loads them first, in that order, before the smallest-first sweep, and `make_demo_db.py --budget-mb N --require-parcels` fills the demo budget with them first (only counties whose parcel boundaries are at least 90% loaded are eligible).
+
 ### Run lock
 
 `etl.py` (the scheduled daily refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.
@@ -266,9 +274,9 @@ identical to the local build. The current demo lists the 18 counties whose
 parcel boundaries were complete when it was built (~970 MB uncompressed,
 108 MB gzipped; Render's free build handled that size fine).
 
-1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --counties baker,calhoun,...`
-   (or `--budget-mb N` to pick smallest-first; note `attributes_json` dominates
-   the size, so the estimate runs ~3x low) then `gzip -k demo/fl_county_demo.db`.
+1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --budget-mb 1100 --require-parcels`
+   (priority metros first, then smallest-first, complete counties only; or
+   `--counties a,b,c` for an explicit list) then `gzip -k demo/fl_county_demo.db`.
 2. Attach the `.gz` to the GitHub Release tagged `demo-data`
    (`gh release upload demo-data demo/fl_county_demo.db.gz --clobber`).
 3. `render.yaml` defines the Render free web service. Its build step runs

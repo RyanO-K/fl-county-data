@@ -140,7 +140,11 @@ def run_phase2():
         except Exception as exc:  # noqa: BLE001
             etl.log(f"[FAIL] {county}: could not get parcel count ({exc}); skipping from phase2 ordering")
 
-    counts.sort(key=lambda t: t[1])
+    # Priority metros first (in their listed order), then everything else
+    # smallest-first so many counties become usable early.
+    rank = {c: i for i, c in enumerate(etl.PRIORITY_COUNTIES)}
+    counts.sort(key=lambda t: (rank.get(t[0], len(rank)), t[1] if t[0] not in rank else 0))
+    etl.log("  phase2 order: " + ", ".join(c for c, _, _ in counts))
 
     conn = etl.get_conn()
     t0 = time.time()
@@ -158,10 +162,15 @@ def run_phase2():
         free = free_bytes()
         est_size = n * BYTES_PER_PARCEL_EST
         if free < MIN_FREE_BYTES or (free - est_size) < MIN_FREE_BYTES:
+            skipped_disk.append((county, n))
+            if county in etl.PRIORITY_COUNTIES:
+                etl.log(f"[SKIP] phase2: free={free/1024**3:.2f}GB, priority county {county} "
+                        f"({n:,} parcels, est {est_size/1024**3:.2f}GB) would breach the 2.0GB floor; "
+                        "continuing with smaller counties")
+                continue
             etl.log(f"[STOP] phase2: free={free/1024**3:.2f}GB, next county {county} "
                     f"({n:,} parcels, est {est_size/1024**3:.2f}GB) would breach the 2.0GB floor; stopping "
                     f"(remaining {len(counts) - idx} counties, ascending by size, will only get bigger)")
-            skipped_disk.append((county, n))
             stopped = True
             continue
         have = conn.execute(
