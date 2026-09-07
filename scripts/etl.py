@@ -588,12 +588,68 @@ def sync_source(conn, county, dataset_type, source):
         conn.commit()
         log(f"[FAIL] {county}/{dataset_type}: {exc}")
 
+# --- run lock ---------------------------------------------------------------
+# One writer at a time: the scheduled daily refresh (etl.py) and the initial
+# bulk loader (load_all.py) both upsert into the same SQLite file, and running
+# them together only produces lock contention. The lock is a small JSON file
+# next to the database holding the owner's pid; a stale lock (dead pid) is
+# ignored.
+LOCK_PATH = DB_PATH.parent / "etl.lock"
+
+
+def _pid_alive(pid):
+    if os.name == "nt":
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        ctypes.windll.kernel32.CloseHandle(h)
+        return True
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
+def active_run():
+    """Return {'pid', 'name', 'started'} for a live run holding the lock, else None."""
+    try:
+        info = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return info if _pid_alive(info.get("pid", -1)) else None
+
+
+def acquire_run_lock(name):
+    """Take the lock for this process, or return the conflicting run's info."""
+    other = active_run()
+    if other and other.get("pid") != os.getpid():
+        return other
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LOCK_PATH.write_text(json.dumps({"pid": os.getpid(), "name": name,
+                                     "started": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
+    return None
+
+
+def release_run_lock():
+    try:
+        if json.loads(LOCK_PATH.read_text(encoding="utf-8")).get("pid") == os.getpid():
+            LOCK_PATH.unlink()
+    except (OSError, ValueError):
+        pass
+
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     only_county = args[0] if args else None
     sources = json.loads(SOURCES_PATH.read_text(encoding="utf-8"))
+    other = acquire_run_lock("etl daily refresh")
+    if other:
+        log(f"[SKIP] ETL run: '{other.get('name')}' (pid {other.get('pid')}, started {other.get('started')}) "
+            "is still writing to the database; try again after it finishes")
+        return
     conn = get_conn()
     log(f"=== ETL run started (filter={only_county or 'ALL'}) ===")
     for county, datasets in sources.items():
@@ -612,6 +668,7 @@ def main():
     backfill_city(conn, only_county)
     dor_values.apply_values_to_features(conn, only_county)
     conn.close()
+    release_run_lock()
     log("=== ETL run finished ===")
 
 

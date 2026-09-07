@@ -232,6 +232,10 @@ until then it says so.
 geometry acreage for anything still missing it; the DOR join upgrades
 geometry-derived parcel acreage to `dor` where land square footage exists.
 
+### Run lock
+
+`etl.py` (the scheduled daily refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.
+
 ### Extra source config keys
 - `"where"`: optional ArcGIS SQL filter applied to every query for that layer (used when one service holds more than one county, e.g. the Baker/Nassau parcel layer).
 - `"type": "statewide_geometry"`: parcel boundaries pulled from the statewide DOR cadastral layer by OBJECTID for the parcels already in `parcel_values` (13 counties without a county-hosted parcel layer).

@@ -206,13 +206,18 @@ def run_phase2():
 
 def main():
     phase = sys.argv[1] if len(sys.argv) > 1 else None
-    if phase == "phase1":
-        run_phase1()
-    elif phase == "phase2":
-        run_phase2()
-    else:
+    if phase not in ("phase1", "phase2"):
         print("usage: load_all.py [phase1|phase2]")
         sys.exit(1)
+    other = etl.acquire_run_lock(f"load_all {phase}")
+    if other:
+        etl.log(f"[SKIP] load_all {phase}: '{other.get('name')}' (pid {other.get('pid')}, "
+                f"started {other.get('started')}) holds the database; stop it first")
+        sys.exit(2)
+    try:
+        run_phase1() if phase == "phase1" else run_phase2()
+    finally:
+        etl.release_run_lock()
 
 
 if __name__ == "__main__":
