@@ -1,0 +1,1510 @@
+{
+  "alachua": {
+    "parcels": {
+      "url": "https://services.arcgis.com/cNo3jpluyt69V8Ek/arcgis/rest/services/PublicParcel/FeatureServer/0",
+      "key_field": "Prop_ID",
+      "field_map": {
+        "city": "INC_MUNI"
+      },
+      "notes": "Alachua County Property Appraiser 'Public Parcels' hosted layer (ArcGIS Hub item at data2018-11-15t152007183z-acpa.opendata.arcgis.com). Geometry + owner/address/Prop_ID only - no acreage, land use, zoning, or value fields are exposed on this public layer."
+    },
+    "zoning": {
+      "url": "https://services1.arcgis.com/MiBZ4u97DWldovjI/arcgis/rest/services/ZoningCountyWide/FeatureServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONECODE",
+        "zoning_desc": "ZONEDISTRICT"
+      },
+      "notes": "Alachua County GIS (Growth Management) countywide zoning, covers unincorporated county plus participating municipalities (JURIS field identifies jurisdiction)."
+    }
+  },
+  "baker": {
+    "parcels": {
+      "url": "https://services2.arcgis.com/PYn6bWCjT6bhw1z3/arcgis/rest/services/Parcels_in_Baker_and_Nassau_Counties/FeatureServer/0",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "LUCODE",
+        "land_use_desc": "PARUSEDESC",
+        "land_value": "LNDVAL",
+        "building_value": "IMPROVVAL",
+        "total_value": "JV",
+        "city": "PHYCITY"
+      },
+      "notes": "Shared 'Parcels in Baker and Nassau Counties' FeatureServer; filtered to CNTYNAME='BAKER' (12,497 parcels; the layer also holds Nassau and a few stray rows). Single hosted layer covers BOTH Baker and Nassau counties (DOR-derived NAL/cadastral extract) - filter on CNTYNAME='BAKER' when querying to isolate Baker County parcels. Nassau County is not part of this batch.",
+      "where": "CNTYNAME='BAKER'"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning REST/API layer found for Baker County. Property Appraiser GIS map (bakerpa.com/map/index.html) is an ArcGIS web app viewer only; no separate zoning geometry service was located in a focused search. Rural/small county - likely no digitized public zoning GIS layer."
+    }
+  },
+  "bay": {
+    "parcels": {
+      "url": "https://gis.baycountyfl.gov/arcgis/rest/services/Basic_Layers/MapServer/3",
+      "key_field": "RE_LABEL",
+      "field_map": {
+        "acreage": "DTAXACRES",
+        "land_use_code": "DORAPPCODE",
+        "land_use_desc": "DORAPPDESC",
+        "zoning_code": "Zoning",
+        "land_value": "VAPLNDMRK",
+        "building_value": "VAPBLDG",
+        "total_value": "VASJUST"
+      },
+      "notes": "Bay County GIS 'Basic_Layers' Parcels layer - combines parcel geometry with Property Appraiser CAMA attributes (values, DOR use code) and a zoning code field. Public REST, no auth."
+    },
+    "zoning": {
+      "url": "https://gis.baycountyfl.gov/arcgis/rest/services/Land_Use_Planning/MapServer/1",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING"
+      },
+      "notes": "Bay County official Zoning layer (Land_Use_Planning service); also carries per-municipality zoning fields (Zoning_Callaway, Zoning_PanamaCity, etc.) for incorporated areas."
+    },
+    "future_land_use": {
+      "url": "https://gis.baycountyfl.gov/arcgis/rest/services/Land_Use_Planning/MapServer/2",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLU_CODE"
+      },
+      "notes": "Bay County Future Land Use layer, same service as zoning."
+    }
+  },
+  "bradford": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Bradford County-hosted REST parcel service found (Property Appraiser site at bradfordappraiser.com/gis/ offers a viewer only). Using the FL Dept. of Revenue statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=14 (Bradford's DOR county number - confirmed live via query: PHY_CITY='STARKE' returns CO_NO=14). Acreage not directly published (LND_SQFOOT / 43560 approximates it). Annual refresh cadence (DOR collects each April/August), not daily.",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Bradford County in a focused search. Bradford County GIS page (bradfordcountyfl.gov/gis/) exists but no zoning service endpoint was located."
+    }
+  },
+  "brevard": {
+    "parcels": {
+      "url": "https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_New_WKID2881/MapServer/5",
+      "key_field": "TaxAcct",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "USE_CODE",
+        "land_use_desc": "USE_CODE_DESCRIPTION",
+        "land_value": "LAND_VALUE",
+        "building_value": "BLDG_VALUE",
+        "city": "CITY"
+      },
+      "notes": "Brevard County GIS 'Parcel Property' layer (layer 5 of the county's Parcel_New basemap service), combines Property Appraiser attribute data with parcel geometry. No combined total_value field published (sum LAND_VALUE + BLDG_VALUE as an approximation). The Property Appraiser's own bcpao.us ArcGIS REST endpoint is Cloudflare-protected and not fetchable without a browser."
+    },
+    "zoning": {
+      "url": "https://gis.brevardfl.gov/gissrv/rest/services/Planning_Development/Zoning_WKID2881/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING"
+      },
+      "notes": "Brevard County official Zoning layer, unincorporated county."
+    },
+    "future_land_use": {
+      "url": "https://gis.brevardfl.gov/gissrv/rest/services/Planning_Development/FLU_WKID2881/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "Brevard County Future Land Use layer; field names not yet enumerated beyond service/layer verification."
+    }
+  },
+  "broward": {
+    "parcels": {
+      "url": "https://gisweb-adapters.bcpa.net/arcgis/rest/services/BCPA_EXTERNAL_JAN26/MapServer/16",
+      "key_field": "FOLIO",
+      "field_map": {},
+      "notes": "Full Broward parcel layer (556k parcels, matches expected county parcel count). Owner/valuation/land-use fields were stripped from this public layer in a June 2026 migration - it now gives geometry + FOLIO only. Cross-reference FOLIO with the FL DOR statewide NAL file (floridarevenue.com) to attach value/land-use/zoning attributes."
+    },
+    "zoning": {
+      "url": "https://services.arcgis.com/JMAJrTsHNLrSsWf5/arcgis/rest/services/Broward_Municipal_Service_District_Zoning/FeatureServer/2",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING",
+        "zoning_desc": "DESCRIPTION"
+      },
+      "notes": "Official current zoning for unincorporated Broward (Broward County Code Ch. 39). Updated annually per service metadata."
+    },
+    "land_use": {
+      "url": "https://gisweb-adapters.bcpa.net/arcgis/rest/services/BCPA_EXTERNAL_JAN26/MapServer/10",
+      "key_field": "OBJECTID",
+      "no_offset_pagination": true,
+      "field_map": {
+        "land_use_code": "SLUC1",
+        "acreage": "ACRES"
+      },
+      "notes": "BCPA 'County Land Use' layer (SLUC1 land use code, ACRES, DENSITY, BPC_BCFUTU future land use). Server does not support resultOffset pagination (maxRecordCount 1000, supportsPagination=false) - ETL falls back to OBJECTID-batch fetching."
+    }
+  },
+  "calhoun": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Calhoun County-hosted REST parcel service found (Property Appraiser at calhounpa.net offers a viewer only; note gis.calhouncounty.org is a DIFFERENT Calhoun County in Alabama - verified and excluded). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=17 (Calhoun's DOR county number per standard alphabetical FL DOR numbering - not independently query-confirmed for this specific county, spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found. Very small rural county; likely no digitized public zoning GIS service."
+    }
+  },
+  "charlotte": {
+    "parcels": {
+      "url": "https://agis2.charlottecountyfl.gov/arcgis/rest/services/Essentials/CCGIS_Web_Layers2022/MapServer/17",
+      "key_field": "ACCOUNT",
+      "field_map": {
+        "land_use_code": "usecode",
+        "land_use_desc": "landuse",
+        "zoning_code": "zoningcode",
+        "land_value": "totlandvalue",
+        "building_value": "totbuildvalue",
+        "total_value": "totvalue",
+        "city": "city"
+      },
+      "notes": "Charlotte County GIS 'Property Ownership' layer - Property Appraiser CAMA data joined to parcel geometry. No dedicated acreage field found (Shape_Area can approximate)."
+    },
+    "zoning": {
+      "url": "https://agis2.charlottecountyfl.gov/arcgis/rest/services/Essentials/CCGIS_Web_Layers2022/MapServer/44",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONE"
+      },
+      "notes": "Charlotte County Zoning layer, Community Development Dept, unincorporated county."
+    },
+    "future_land_use": {
+      "url": "https://agis2.charlottecountyfl.gov/arcgis/rest/services/Essentials/CCGIS_Web_Layers2022/MapServer/42",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "NEWLU"
+      },
+      "notes": "Charlotte County Future Land Use layer, same service."
+    }
+  },
+  "citrus": {
+    "parcels": {
+      "url": "https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/2",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "DORUSECODE",
+        "land_use_desc": "PARUSEDESC",
+        "zoning_code": "ZONING",
+        "land_value": "LANDVAL",
+        "building_value": "IMPROVVAL",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "Southwest Florida Water Management District (SWFWMD) 'BaseVector/parcel_search' service mirrors each member county's Property Appraiser parcel roll, layer per county. Citrus is layer id 2. Zoning code is a field on the parcel record itself (no separate zoning geometry layer found for Citrus County). No county-hosted REST endpoint of its own was found."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No standalone zoning geometry REST layer found for Citrus County; zoning code is carried as an attribute (ZONING field) on the SWFWMD parcel layer above. Citrus County GIS (gis.citrusbocc.com) hosts an interactive viewer with zoning/land-use layers but no discovered public REST endpoint in a focused search."
+    }
+  },
+  "clay": {
+    "parcels": {
+      "url": "https://maps.claycountygov.com:6443/arcgis/rest/services/Parcel/MapServer/0",
+      "key_field": "PIN",
+      "field_map": {
+        "land_use_desc": "Usedesc",
+        "city": "City"
+      },
+      "notes": "Clay County GIS 'Parcel Data' layer. Thin attribute set (address/owner/legal/use description only) - no acreage or value fields exposed on this public layer. Property Appraiser's own certified data (ccpao.com/certified-data/) is shapefile-download only.",
+      "format": "json"
+    },
+    "zoning": {
+      "url": "https://maps.claycountygov.com:6443/arcgis/rest/services/Zoning/MapServer/3",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "Zoning"
+      },
+      "notes": "Clay County official Zoning layer (layer 3 of the county's Zoning MapServer, which also has Overlay District/Zoning Adjustments/Village Centers sublayers).",
+      "format": "json"
+    }
+  },
+  "collier": {
+    "parcels": {
+      "url": "https://services2.arcgis.com/SlIq32SqARUHIhSx/arcgis/rest/services/Parcel/FeatureServer/2",
+      "key_field": "Folio",
+      "field_map": {
+        "city": "SiteCity"
+      },
+      "notes": "Collier County Growth Management Community Development Dept 'Simplified Parcels' hosted layer. Dissolved-by-folio geometry with owner/address only - no acreage, land use, or value fields. (The previously indexed ags2.colliercountyfl.gov REST endpoint referenced in search results no longer resolves - DNS NXDOMAIN as of verification - do not use.)"
+    },
+    "zoning": {
+      "url": "https://services2.arcgis.com/SlIq32SqARUHIhSx/arcgis/rest/services/Zoning_General_(Editable)_view/FeatureServer/1",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING",
+        "zoning_desc": "DISTRICT"
+      },
+      "notes": "Collier County General Zoning layer, official Growth Management Dept service."
+    }
+  },
+  "columbia": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Columbia County-hosted REST parcel service found (Property Appraiser uses a Grizzard/FloridaPA viewer at columbia.floridapa.com/gis/, and gismaps.columbiapa.org/webapps/parcel/ is a viewer app, not an exposed API). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=22 (Columbia's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Columbia County in a focused search."
+    }
+  },
+  "desoto": {
+    "parcels": {
+      "url": "https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/3",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "DORUSECODE",
+        "land_use_desc": "PARUSEDESC",
+        "zoning_code": "ZONING",
+        "land_value": "LANDVAL",
+        "building_value": "IMPROVVAL",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "SWFWMD 'BaseVector/parcel_search' service, DeSoto County layer (id 3). Same shared schema verified against the Citrus County layer (id 2) in this same service. No county-hosted REST endpoint of its own was found."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No standalone zoning geometry REST layer found for DeSoto County; zoning code is carried as an attribute (ZONING field) on the SWFWMD parcel layer above."
+    }
+  },
+  "dixie": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Dixie County-hosted REST parcel service found (Property Appraiser uses qpublic.net/fl/dixie/ - Schneider Geospatial viewer, no public API). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=25 (Dixie's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found. Very small rural county."
+    }
+  },
+  "duval": {
+    "parcels": {
+      "url": "https://maps.coj.net/coj/rest/services/CityBiz/Parcels/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "PUSE",
+        "zoning_code": "ZON_LABEL",
+        "land_value": "TOT_LND_VA",
+        "building_value": "TOT_BLD_VA",
+        "total_value": "CAMA_VAL",
+        "city": "ADDRCITY"
+      },
+      "notes": "City of Jacksonville / Duval County parcels layer - combines parcel, zoning (ZON_LABEL), land use (PUSE) and valuation in one layer. No dedicated zoning geometry layer is publicly exposed."
+    }
+  },
+  "escambia": {
+    "parcels": {
+      "url": "https://gismaps.myescambia.com/arcgis/rest/services/Individual_Layers/parcels/MapServer/0",
+      "key_field": "CONTROLNO",
+      "field_map": {
+        "acreage": "LANDSIZE",
+        "land_use_code": "DORCD",
+        "land_value": "CURRASDLAND",
+        "building_value": "CURRASDBLDG",
+        "total_value": "CURRMKT",
+        "city": "CITY"
+      },
+      "notes": "Escambia County GIS parcels layer - 'Escambia County Parcels - Updated Monthly', copyright Escambia County Property Appraiser. Public REST, no auth."
+    },
+    "zoning": {
+      "url": "https://gismaps.myescambia.com/arcgis/rest/services/Individual_Layers/Zoning/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING"
+      },
+      "notes": "Escambia County Zoning layer."
+    },
+    "future_land_use": {
+      "url": "https://gismaps.myescambia.com/arcgis/rest/services/Individual_Layers/FLU_2030/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLU_LABEL"
+      },
+      "notes": "Escambia County Future Land Use 2030 layer."
+    }
+  },
+  "flagler": {
+    "parcels": {
+      "url": "https://services3.arcgis.com/hSKL9bYjhP4rHxSD/arcgis/rest/services/Flagler_County_Parcels/FeatureServer/0",
+      "key_field": "PARCELNO",
+      "field_map": {
+        "acreage": "legal_acreage",
+        "land_use_code": "property_use_cd",
+        "land_use_desc": "property_use_desc",
+        "land_value": "mktland",
+        "total_value": "JustVal",
+        "city": "situs_city"
+      },
+      "notes": "Flagler County GIS (FCMAPS) hosted parcels layer, Property Appraiser CAMA data joined to geometry. No single combined building_value field identified (reg_imprvVal + xtraF_imprvVal approximate it)."
+    },
+    "zoning": {
+      "url": "https://services3.arcgis.com/hSKL9bYjhP4rHxSD/arcgis/rest/services/Unincorporated_Zoning/FeatureServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONECODE",
+        "zoning_desc": "ZONENAME",
+        "city": "CITYNAME"
+      },
+      "notes": "Flagler County Unincorporated Zoning layer. Separate city-specific zoning layers also exist (Flagler_Beach_Zoning, Bunnell_Zoning, Beverly_Beach_Zoning, Marineland_Zoning) for incorporated areas, same FCMAPS host."
+    }
+  },
+  "franklin": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Franklin County-hosted REST parcel service found (Property Appraiser Records Search at franklin-search.gsacorp.io is a proprietary web app with no public API; franklin.mipsgis.com is a GIS portal but no service endpoint located). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=29 (Franklin's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Franklin County in a focused search."
+    }
+  },
+  "gadsden": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Gadsden County-hosted REST parcel service found (Property Appraiser uses qpublic.schneidercorp.com - Schneider Geospatial viewer, no public API). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=30 (Gadsden's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Gadsden County in a focused search."
+    }
+  },
+  "gilchrist": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Gilchrist County-hosted REST parcel service found (Property Appraiser uses qpublic.schneidercorp.com viewer). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=31 (Gilchrist's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found. Very small rural county."
+    }
+  },
+  "glades": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Glades County-hosted REST parcel service found. A 'Glades FLUM' ArcGIS Experience app exists (experience.arcgis.com/experience/23cc21eddb2f40d897ed5c296e895d08) suggesting a future-land-use layer, but no underlying FeatureServer/MapServer URL was confirmed in a focused search. Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=32 (Glades' DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer confirmed. Very small rural county."
+    }
+  },
+  "gulf": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Gulf County-hosted REST parcel service found (Property Appraiser records search runs through beacon.schneidercorp.com, no public API). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=33 (Gulf's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Gulf County in a focused search."
+    }
+  },
+  "hamilton": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Hamilton County-hosted REST parcel service found (Property Appraiser at hamiltonpa.com offers a viewer only). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=34 (Hamilton's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found. Very small rural county."
+    }
+  },
+  "hardee": {
+    "parcels": {
+      "url": "https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/4",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "DORUSECODE",
+        "land_use_desc": "PARUSEDESC",
+        "zoning_code": "ZONING",
+        "land_value": "LANDVAL",
+        "building_value": "IMPROVVAL",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "SWFWMD 'BaseVector/parcel_search' service, Hardee County layer (id 4). Same shared schema verified against the Citrus County layer (id 2) in this same service. No county-hosted REST endpoint of its own was found."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No standalone zoning geometry REST layer found for Hardee County; zoning code is carried as an attribute (ZONING field) on the SWFWMD parcel layer above."
+    }
+  },
+  "hendry": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Hendry County-hosted REST parcel service found (gis.hendryfla.net GIS portal has no discoverable service endpoints; Property Appraiser uses beacon.schneidercorp.com viewer). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=36 (Hendry's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Hendry County in a focused search."
+    }
+  },
+  "hernando": {
+    "parcels": {
+      "url": "https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/5",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "DORUSECODE",
+        "land_use_desc": "PARUSEDESC",
+        "zoning_code": "ZONING",
+        "land_value": "LANDVAL",
+        "building_value": "IMPROVVAL",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "SWFWMD 'BaseVector/parcel_search' service, Hernando County layer (id 5). Same shared schema verified against Citrus County (id 2). A county/PA-specific parcel endpoint (Hernando Central GIS, gis.hernandopa-fl.us) exists as an interactive site but no public FeatureServer/MapServer URL was located for parcels themselves."
+    },
+    "zoning": {
+      "url": "https://services2.arcgis.com/x5zvhhxfUuRDntRe/arcgis/rest/services/Zoning_Flu/FeatureServer/75",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "Hernando County 'Zoning_Flu' hosted service, layer 75 ('Zoning'). Same service also has layer 0 ('All Future Landuse Categories') for future land use and layer 7 ('DOR Existing Land Use'). Field names not yet enumerated beyond layer verification."
+    },
+    "future_land_use": {
+      "url": "https://services2.arcgis.com/x5zvhhxfUuRDntRe/arcgis/rest/services/Zoning_Flu/FeatureServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "Hernando County Future Land Use ('All Future Landuse Categories'), same service as zoning."
+    }
+  },
+  "highlands": {
+    "parcels": {
+      "url": "https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/6",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "DORUSECODE",
+        "land_use_desc": "PARUSEDESC",
+        "zoning_code": "ZONING",
+        "land_value": "LANDVAL",
+        "building_value": "IMPROVVAL",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "SWFWMD 'BaseVector/parcel_search' service, Highlands County layer (id 6). Same shared schema verified against Citrus County (id 2). A 'Highlands County GIS Open Data' hub (highlands-county-gis-open-data-hcbcc.hub.arcgis.com) also exists but was not individually queried for a parcels FeatureServer."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No standalone zoning geometry REST layer found for Highlands County; zoning code is carried as an attribute (ZONING field) on the SWFWMD parcel layer above."
+    }
+  },
+  "hillsborough": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public REST/API layer found. Bulk parcel shapefile + attribute spreadsheet published at https://downloads.hcpafl.org/ (updated on a rolling basis). Requires periodic manual (or scraped) selection of the current file - see README 'Hillsborough parcels' section before automating."
+    },
+    "zoning": {
+      "url": "https://maps.hillsboroughcounty.org/arcgis/rest/services/DSD_Viewer_Services/DSD_Viewer_Zoning_Regulatory/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "NZONE",
+        "zoning_desc": "NZONE_DESC",
+        "acreage": "ACRES"
+      },
+      "notes": "Official Zoning Atlas for Hillsborough County, per Land Development Code."
+    }
+  },
+  "holmes": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Holmes County-hosted REST parcel service found. Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=40 (Holmes' DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it).",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found. Very small rural county."
+    }
+  },
+  "indian_river": {
+    "parcels": {
+      "url": "https://gisportal.ircgov.com/server3/rest/services/IRCPA/Parcels_MS/MapServer/0",
+      "key_field": "PP_PIN",
+      "field_map": {
+        "acreage": "LAND_ACRES",
+        "land_use_code": "PROPUSE_CD",
+        "land_use_desc": "DOR_DESC",
+        "land_value": "LAND_VALUE",
+        "building_value": "BLDG_VALUE",
+        "total_value": "CAMA_VALUE",
+        "city": "AD_CITY"
+      },
+      "notes": "Indian River County Property Appraiser (IRCPA) hosted parcels layer, part of the county's gisportal.ircgov.com server. Public REST, no auth."
+    },
+    "zoning": {
+      "url": "https://gisportal.ircgov.com/server3/rest/services/Planning/IRC_Zoning_MS/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING"
+      },
+      "notes": "Indian River County Planning Division Zoning layer."
+    },
+    "future_land_use": {
+      "url": "https://gisportal.ircgov.com/server3/rest/services/Planning/IRC_Future_Land_Use_MS/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "LAND_USE"
+      },
+      "notes": "Indian River County Future Land Use layer, same Planning services folder."
+    }
+  },
+  "jackson": {
+    "parcels": {
+      "type": "manual",
+      "note": "gis.mijackson.org ParcelViewer/Parcels layer advertises Query but every query request fails (checked 2026-09-06). Use FL DOR statewide cadastral/NAL for Jackson parcels."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found for Jackson County in a focused search. Rural county - likely no digitized public zoning GIS service."
+    }
+  },
+  "jefferson": {
+    "parcels": {
+      "url": "https://services5.arcgis.com/vFMp1Ly1q6rKKp0o/arcgis/rest/services/JC__PARCELS_view/FeatureServer/0",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "COGO_ACRES"
+      },
+      "notes": "Jefferson County Property Appraiser (JCPA) GIS data hub (gisdata-jcpa.hub.arcgis.com) hosted parcels layer. Geometry + parcel ID/acreage only - no land use, zoning, or value fields on this layer."
+    },
+    "zoning": {
+      "url": "https://services5.arcgis.com/vFMp1Ly1q6rKKp0o/arcgis/rest/services/JC_CITY_ZONING_view/FeatureServer/0",
+      "key_field": "FID",
+      "field_map": {
+        "zoning_code": "ZONES",
+        "zoning_desc": "ZONENAME"
+      },
+      "notes": "JCPA 'JC City Zoning' layer - appears scoped to incorporated Monticello, not a full countywide zoning layer. No separate unincorporated-county zoning layer was found in the hub's dataset feed."
+    },
+    "future_land_use": {
+      "type": "manual",
+      "note": "JC_FLUM_view FeatureServer on services5.arcgis.com exposes no layers (empty service, checked 2026-09-06). Request the FLUM shapefile from Jefferson County Planning or use DOR fallback."
+    }
+  },
+  "lafayette": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No county-hosted parcel REST layer. Geometry is pulled from the FL DOR statewide cadastral FeatureServer for exactly the parcels in parcel_values (matched by OBJECTID), because CO_NO filters on that layer time out. No Lafayette County-hosted REST parcel service found (lafayettepa.com/gis/ offers a viewer only). Using FL DOR statewide cadastral/NAL FeatureServer as fallback, filtered to CO_NO=44 (Lafayette's DOR county number per standard alphabetical FL DOR numbering - spot-check before relying on it). One of Florida's least populous counties.",
+      "type": "statewide_geometry"
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public zoning GIS REST layer found. Very small rural county."
+    }
+  },
+  "lake": {
+    "parcels": {
+      "url": "https://gis.lakecountyfl.gov/lakegis/rest/services/PropertyAppraiser/FieldMap/MapServer/0",
+      "key_field": "ParcelNumber",
+      "field_map": {
+        "acreage": "Acres",
+        "land_use_code": "PropertyClassCode",
+        "land_use_desc": "PropertyClassDescription",
+        "land_value": "LandValue",
+        "building_value": "BuildingValue",
+        "total_value": "TotalJustValue"
+      },
+      "notes": "Lake County Property Appraiser 'FieldMap' service, layer 0 carries the full parcel attribute set (despite the MapServer's overall description reading 'LCPA Building Permit Map Service'). Also has LandUseCode/LandUseDescription fields available as an alternate land-use pairing."
+    },
+    "zoning": {
+      "url": "https://gis.lakecountyfl.gov/lakegis/rest/services/OpenData/OpenData3/MapServer/10",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "Zoning",
+        "zoning_desc": "ZoningNm"
+      },
+      "notes": "Lake County official Zoning layer (unincorporated county), part of the county's public OpenData REST service."
+    }
+  },
+  "lee": {
+    "parcels": {
+      "url": "https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/arcgis/rest/services/Lee_County_Parcels/FeatureServer/0",
+      "key_field": "STRAP",
+      "field_map": {
+        "acreage": "GISACRES",
+        "land_use_code": "DORCODE",
+        "land_use_desc": "LANDUSEDES",
+        "zoning_code": "ZONING",
+        "land_value": "LAND",
+        "building_value": "BUILDING",
+        "total_value": "ASSESSED",
+        "city": "SITECITY"
+      },
+      "notes": "Lee County Parcels, hosted ArcGIS Online Feature Service maintained by Lee County GIS (LeeGIS org). Also has LANDUSECOD/LANDUSEDES field (=DORCODE naming appears to duplicate; used DORCODE as DOR-style code). JUST/TAXABLE value fields also present if ASSESSED not desired."
+    },
+    "zoning": {
+      "url": "https://gismapserver.leegov.com/gisserver910/rest/services/Layers/DCD_Zoning/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "Lee County DCD_Zoning MapServer, layer 0 = 'Zoning' - current zoning districts and planned development districts in unincorporated Lee County. Field list not individually confirmed for layer 0 (service confirmed live); separate municipal zoning layers (Cape Coral, Fort Myers, Estero, Fort Myers Beach, Bonita Springs) also present in same service (ids 1,2,5,6,7)."
+    }
+  },
+  "leon": {
+    "parcels": {
+      "url": "https://intervector.leoncountyfl.gov/intervector/rest/services/MapServices/TLC_OverlayPropInfo_D_WM/MapServer/0",
+      "key_field": "TAXID",
+      "field_map": {
+        "land_use_code": "LANDUSE",
+        "zoning_code": "ZONING",
+        "zoning_desc": "ZONED",
+        "total_value": "MARKETVAL"
+      },
+      "notes": "Tallahassee-Leon County GIS (TLCGIS) joint parcel layer - combines parcels, zoning and land-use in one layer (like Duval), no separate zoning REST layer found. No land/building value split (only MARKETVAL/TAXABLE/EXEMPT) and no acreage field present. Future land use is embedded via FUTURELU (short code, len 10) and FLANDU/FLANDU2 (description, len 55) fields on this same layer if needed."
+    }
+  },
+  "levy": {
+    "parcels": {
+      "url": "https://services.arcgis.com/Y6ubaOgtVe9iI9sU/arcgis/rest/services/Parcels_August_2024/FeatureServer/57",
+      "key_field": "parcel_NO",
+      "field_map": {
+        "acreage": "Calc_Acre",
+        "land_use_code": "Dor_c",
+        "land_value": "Tot_Land",
+        "building_value": "Tot_Build",
+        "total_value": "Jst_v",
+        "city": "site_city"
+      },
+      "notes": "Levy County's own hosted parcels layer ('ParcelsPublic20240815', Aug 2024 vintage) on the county's ArcGIS Online org. A third-party mirror with an equivalent DOR-derived schema (ACRES/ASSD_LND/ASSD_BLD/ASSD_TOT/ZONING/PARCELID) is also public via SWFWMD at https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/9."
+    },
+    "zoning": {
+      "url": "https://services.arcgis.com/UqEiJNEITE8ox8CF/arcgis/rest/services/2025_08_07_ZON_FLU/FeatureServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "LEZN2d",
+        "acreage": "acre"
+      },
+      "notes": "Levy County Planning & Zoning 'Zoning' layer ('Zoning_ExportF_MPtoSP'), sourced from the county's official Zoning and Future Land Use web map, updated 2025-08-07."
+    },
+    "future_land_use": {
+      "url": "https://services.arcgis.com/UqEiJNEITE8ox8CF/arcgis/rest/services/2025_08_07_ZON_FLU/FeatureServer/1",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "Levy_FLU",
+        "acreage": "acre"
+      },
+      "notes": "'FutureLandUse_MptoSP2' layer, same service as zoning above."
+    }
+  },
+  "liberty": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public ArcGIS REST/API layer found for Liberty County (pop. ~8,300, one of FL's smallest/most rural counties). Parcel search available via Schneider Corp qPublic: https://qpublic.schneidercorp.com/Application.aspx?App=LibertyCountyFL&Layer=Parcels&PageType=Search (found via search; direct fetch returned HTTP 403 bot-block, but URL confirmed real via multiple independent search-result titles). Liberty County Property Appraiser site also links its own GIS maps at https://libertycountypropertyappraiser.org/gis-maps/."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public REST/API zoning layer found. Liberty County Growth Management / Planning & Zoning Department page: https://libertycountyfl.org/growth-management/planning-zoning-department/ (contracts planning/zoning services to Apalachee Regional Planning Council; provides FLUM map, Comprehensive Plan, and Land Development Regulations as documents, not a GIS service). Direct fetch returned HTTP 403 (bot-block) but page is confirmed real via search."
+    }
+  },
+  "madison": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public ArcGIS REST/API layer found for Madison County. Parcel search via Schneider Corp qPublic: https://qpublic.schneidercorp.com/Application.aspx?App=MadisonCountyFL&Layer=Parcels&PageType=Search (confirmed real via search; direct fetch returned HTTP 403 bot-block). Madison County Property Appraiser also has a GIS/911 addressing page at https://madisonpa.com/madison-county-gis911-addressing/."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public REST/API zoning layer found for Madison County in a focused search. No dedicated county zoning GIS portal located; would require contacting Madison County Planning/GIS directly."
+    }
+  },
+  "manatee": {
+    "parcels": {
+      "url": "https://www.mymanatee.org/gisits/rest/services/commonoperational/parcellines/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "acreage": "ACRES",
+        "land_use_code": "LUC",
+        "land_use_desc": "LUC_DESCRIPTION",
+        "zoning_code": "ZONING",
+        "land_value": "LANDVAL",
+        "building_value": "IMPRVAL",
+        "total_value": "JUSTVAL",
+        "city": "PROP_CITYNAME"
+      },
+      "notes": "Manatee County 'commonoperational/parcellines' hosted Feature Service - resolved via ArcGIS item lookup (item id 4ee8ffd89b0342348e7d7816d5c905f4, 'Parcels - Manatee County'). Rich field set (70 fields) including FUTURE_LAND_USE, ASSESVAL, owner, and flood/overlay fields."
+    },
+    "zoning": {
+      "url": "https://www.mymanatee.org/gisits/rest/services/opendata/Planning/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONELABEL",
+        "acreage": "SURFACE_ID"
+      },
+      "notes": "'Zoning' layer (id 0) on Manatee County Planning open-data MapServer, county-wide (not just Longboat Key). SURFACE_ID mapped tentatively to acreage-like field but not confirmed as acreage - verify before use; ORD_NO/ORD_DATE/NAME fields also present for ordinance reference."
+    },
+    "future_land_use": {
+      "url": "https://www.mymanatee.org/gisits/rest/services/opendata/Planning/MapServer/1",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "'Future Land Use' layer (id 1), companion to Zoning (id 0) in the same Planning MapServer."
+    }
+  },
+  "marion": {
+    "parcels": {
+      "url": "https://gis.marionfl.org/public/rest/services/General/Parcels/MapServer/0",
+      "key_field": "PARCEL",
+      "field_map": {
+        "acreage": "ACRES",
+        "zoning_code": "ZONE1",
+        "land_value": "LND1",
+        "building_value": "TOT_BLD_VA",
+        "total_value": "TOT_VAL",
+        "city": "CITY"
+      },
+      "notes": "Marion County General/Parcels MapServer, layer 0 ('Onemap' parcel/subdivision boundaries service, copyright Marion County Property Appraiser). Rich field set (94 fields) also including TOT_LND_VA, TOT_MISC_V, HX (homestead), NABRHD, ZONE2/ZONE3 (secondary zoning), MRKT_AREA."
+    },
+    "zoning": {
+      "url": "https://gis.marionfl.org/public/rest/services/General/PlanningZoning/MapServer/20",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONECLASS",
+        "zoning_desc": "ZONEDESC",
+        "acreage": "Acres"
+      },
+      "notes": "'Zoning Classification' layer (id 20) on Marion County Planning & Zoning Department's PlanningZoning MapServer. ZoningLabel field also present. Companion 'Future Land Use' layer at id 6 in the same service."
+    },
+    "future_land_use": {
+      "url": "https://gis.marionfl.org/public/rest/services/General/PlanningZoning/MapServer/6",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "'Future Land Use' layer (id 6) in the same PlanningZoning MapServer as Zoning Classification (id 20)."
+    }
+  },
+  "martin": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public parcel REST endpoint found. Martin County Property Appraiser publishes bulk parcel data downloads at https://www.pa.martin.fl.us/tools-resources/data-downloads (listed as the 'Martin County Property Appraiser's Parcel Data' dataset on the county's ArcGIS Hub, data-mcgov.opendata.arcgis.com). geoweb.martin.fl.us's public ArcGIS REST directory (Administrative_Areas, Land_Records, etc. folders) has no parcel-boundary layer with CAMA attributes exposed publicly."
+    },
+    "zoning": {
+      "url": "https://geoweb.martin.fl.us/arcgis/rest/services/Administrative_Areas/Administrative_Areas/MapServer/8",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING",
+        "zoning_desc": "ZONING_DETAILS"
+      },
+      "notes": "'Zoning' layer (id 8) in Martin County's Administrative_Areas MapServer, confirmed via the county's ArcGIS Hub DCAT feed."
+    },
+    "future_land_use": {
+      "url": "https://geoweb.martin.fl.us/arcgis/rest/services/Administrative_Areas/Administrative_Areas/MapServer/9",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FUTURE_LANDUSE",
+        "land_use_desc": "FLUM_DETAILS"
+      },
+      "notes": "'Future Land Use' layer (id 9, layer name 'Landuse') in the same Administrative_Areas MapServer."
+    }
+  },
+  "miami_dade": {
+    "parcels": {
+      "url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/24",
+      "key_field": "FOLIO",
+      "field_map": {
+        "acreage": "LOT_SIZE",
+        "land_use_code": "DOR_CODE_CUR",
+        "land_use_desc": "DOR_DESC",
+        "zoning_code": "PRIMARY_ZONE",
+        "land_value": "LAND_VAL_CUR",
+        "building_value": "BUILDING_VAL_CUR",
+        "total_value": "TOTAL_VAL_CUR",
+        "city": "TRUE_SITE_CITY"
+      },
+      "notes": "Miami-Dade GIS ('Property @ PaGis'), no auth required, public query enabled."
+    },
+    "zoning": {
+      "url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/18",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONE",
+        "zoning_desc": "ZONE_DESC"
+      },
+      "notes": "County Zoning layer ('Zone_Poly_U'), unincorporated county zoning."
+    }
+  },
+  "monroe": {
+    "parcels": {
+      "url": "https://mcgis4.monroecounty-fl.gov/public/rest/services/Parcels/MapServer/0",
+      "key_field": "RECHAR",
+      "field_map": {
+        "land_use_code": "PC",
+        "land_value": "PLAND1",
+        "building_value": "PBLDG1",
+        "total_value": "PJUST1",
+        "city": "CITY"
+      },
+      "notes": "Monroe County 'Current Parcels' layer (APO Parcel Service). RECHAR is the Property ID (aliased 'Property ID'); PJUST1 is the current-year Just (market) value, PLAND1/PBLDG1 are land/building components, PASSD1 is assessed value. No dedicated acreage field - Shape.STArea() gives square feet. Note: mcgis4.monroecounty-fl.gov presents an unverifiable/self-signed TLS certificate - requests must ignore cert verification (curl -k) to reach it; content itself is genuine county GIS service JSON.",
+      "verify_ssl": false
+    },
+    "zoning": {
+      "url": "https://mcgis4.monroecounty-fl.gov/public/rest/services/APO_GIS/MapServer/19",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONE_",
+        "zoning_desc": "Zone_Desc"
+      },
+      "notes": "'Land Use Districts (Zoning)' layer (id 19) inside the APO_GIS MapServer. Same TLS caveat as parcels layer above.",
+      "verify_ssl": false
+    },
+    "future_land_use": {
+      "url": "https://mcgis4.monroecounty-fl.gov/public/rest/services/APO_GIS/MapServer/20",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLUM",
+        "land_use_desc": "FLUMDESC"
+      },
+      "notes": "'Future Land Use (FLUM)' layer (id 20) inside the APO_GIS MapServer.",
+      "verify_ssl": false
+    }
+  },
+  "nassau": {
+    "parcels": {
+      "url": "https://maps.ncpafl.com/ncflpa_arcgis/rest/services/nassau/NassauCountyPublicTaxMap/MapServer/144",
+      "key_field": "PIN",
+      "field_map": {
+        "acreage": "GISCalculatedAcre",
+        "land_use_code": "parcel_use_cd",
+        "total_value": "Just_val"
+      },
+      "notes": "'Land Parcels' layer, part of Nassau County Property Appraiser's public tax map service. DeedAcre field also available (recorded vs GIS-calculated acreage). No single land/building value split field - cap_val_nonSCH/tax_val_nonSCH etc. break value out per taxing authority instead."
+    },
+    "zoning": {
+      "url": "https://maps.ncpafl.com/ncflpa_arcgis/rest/services/nassau/NassauCountyPublicTaxMap/MapServer/154",
+      "key_field": "OBJECTID_1",
+      "field_map": {
+        "zoning_code": "ZONING"
+      },
+      "notes": "'Unincorporated Nassau County Zoning' layer."
+    },
+    "future_land_use": {
+      "url": "https://maps.ncpafl.com/ncflpa_arcgis/rest/services/nassau/NassauCountyPublicTaxMap/MapServer/156",
+      "key_field": "OBJECTID_1",
+      "field_map": {
+        "land_use_code": "FLUM",
+        "acreage": "Acre"
+      },
+      "notes": "'Unincorporated Nassau County Future Land Use' layer."
+    }
+  },
+  "okaloosa": {
+    "parcels": {
+      "type": "manual",
+      "note": "No working public parcel-boundary REST layer with CAMA attributes found. Okaloosa County Property Appraiser's parcel data/maps are served through qPublic (Schneider Corporation) at https://qpublic.schneidercorp.com/application.aspx?AppID=855&LayerID=15999&PageTypeID=1&PageID=7111, a search-based viewer with no public API. A candidate layer (gis.myokaloosa.com/.../BaseMap_Layers/MapServer/111, labeled 'PARCELS' in search results) was checked and is only a cartographic annotation/label sub-layer of a 'PROPERTY LAYERS' group with no queryable parcel attributes (returns a JSON error when queried directly). The county's ArcGIS Hub (data-okaloosa.opendata.arcgis.com) lists a 'Parcels' dataset but its underlying REST service could not be located/confirmed."
+    },
+    "zoning": {
+      "url": "https://okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/Zoning/MapServer/25",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZNGPY_ZONE"
+      },
+      "notes": "'County Zoning' layer (id 25) inside Okaloosa County's Planning-Development/Zoning MapServer (WebGIS). Also carries ZNGPY_ZONE_FROM/ZNGPY_ZONE_TO (rezoning history) and ordinance/date fields."
+    },
+    "future_land_use": {
+      "url": "https://okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/Zoning/MapServer/26",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLUPY_ZONE",
+        "acreage": "FLUPY_GIS_ACRE"
+      },
+      "notes": "'County Future Landuse' layer (id 26) in the same MapServer."
+    }
+  },
+  "okeechobee": {
+    "parcels": {
+      "url": "https://services3.arcgis.com/jE4lvuOFtdtz6Lbl/arcgis/rest/services/Tyler_Technologies_Display_Map/FeatureServer/2",
+      "key_field": "ParcelID",
+      "field_map": {
+        "total_value": "TaxValue",
+        "city": "City"
+      },
+      "notes": "Okeechobee County's official public GIS layer ('Parcels', layer 2 of the county's Tyler Technologies Display Map service, owner OkeechobeePlanning). Attributes are minimal - owner/address/TaxValue only, no land/building value split, no acreage, no DOR land-use code. For fuller DOR NAL attributes (LND_VAL, JV, DOR_UC), cross-reference ParcelID against the statewide Florida_Statewide_Cadastral FeatureServer (https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0, filter on CO_NO/PHY_CITY for Okeechobee); note that service intermittently rejects equality ('=') where-clause filters with an HTTP 400 during testing (apparent WAF quirk) while range operators (>, <) succeed. An older, separately-hosted county parcels layer with no value/use attributes at all is also public at https://services3.arcgis.com/jE4lvuOFtdtz6Lbl/arcgis/rest/services/Parcels_2022/FeatureServer/2 (layer name 'parcels_2024_07_25')."
+    },
+    "zoning": {
+      "url": "https://services3.arcgis.com/jE4lvuOFtdtz6Lbl/arcgis/rest/services/Tyler_Technologies_Display_Map/FeatureServer/9",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "Zoning",
+        "zoning_desc": "DESCRIPTION",
+        "acreage": "ACRES"
+      },
+      "notes": "'Zoning' layer, part of the same official Tyler Technologies Display Map service as parcels."
+    },
+    "future_land_use": {
+      "url": "https://services3.arcgis.com/jE4lvuOFtdtz6Lbl/arcgis/rest/services/Tyler_Technologies_Display_Map/FeatureServer/8",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLU_ZONE",
+        "land_use_desc": "FLU",
+        "acreage": "ACRES"
+      },
+      "notes": "'Future Land Use' layer, same service as zoning above."
+    }
+  },
+  "orange": {
+    "parcels": {
+      "url": "https://ocgis4.ocfl.net/arcgis/rest/services/AGOL_Open_Data/MapServer/56",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "acreage": "ACREAGE",
+        "land_use_code": "LAND_DOR_CODE",
+        "zoning_code": "ZONING_CODE",
+        "land_value": "LAND_MKT",
+        "building_value": "BLDG_MKT",
+        "total_value": "TOTAL_MKT",
+        "city": "SITUS_CITY"
+      },
+      "notes": "Orange County GIS public parcels layer, part of AGOL_Open_Data service ('Data made available in a public service by Orange County FL. Updated weekly.')."
+    },
+    "zoning": {
+      "url": "https://ocgis4.ocfl.net/arcgis/rest/services/AGOL_Open_Data/MapServer/51",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING",
+        "zoning_desc": "ZONETYPE",
+        "city": "JURISDICTION"
+      },
+      "notes": "Unincorporated Orange County zoning, governed by Orange County Code Ch. 38."
+    },
+    "future_land_use": {
+      "url": "https://ocgis4.ocfl.net/arcgis/rest/services/AGOL_Open_Data/MapServer/21",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "LAND_USE"
+      },
+      "notes": "Future Land Use designation for unincorporated Orange County."
+    }
+  },
+  "osceola": {
+    "parcels": {
+      "url": "https://gis.osceola.org/hosting/rest/services/Zoning_Parcels/MapServer/0",
+      "key_field": "PARCELNO",
+      "field_map": {
+        "zoning_code": "PRIM_ZON"
+      },
+      "notes": "Osceola County's 'Zoning Parcels' layer combines parcel boundaries (PARCELNO) with primary/secondary zoning (PRIM_ZON/SEC_ZON) in a single layer - no separate land-use-code or valuation fields are exposed on this service; there is an AREA field but its unit is not documented (likely square feet, not acres), so it was omitted from field_map.",
+      "verify_ssl": false
+    },
+    "zoning": {
+      "url": "https://gis.osceola.org/hosting/rest/services/Zoning_Parcels/MapServer/0",
+      "key_field": "OBJECTID_1",
+      "field_map": {
+        "zoning_code": "PRIM_ZON",
+        "zoning_desc": "Zoning_Dis"
+      },
+      "notes": "Same combined 'Zoning Parcels' service/layer as parcels above (Osceola does not expose a standalone zoning-only layer publicly) - PRIM_ZON/SEC_ZON give primary/secondary zoning code, Zoning_Dis gives the zoning district description.",
+      "verify_ssl": false
+    }
+  },
+  "palm_beach": {
+    "parcels": {
+      "type": "manual",
+      "note": "Palm Beach County Property Appraiser publishes a parcel base map for free bulk download via GIS page https://pbcpao.gov/departments/gis.htm and open data hub https://opendata2-pbcgov.opendata.arcgis.com/. The only confirmed queryable REST layer (https://maps.co.palm-beach.fl.us/arcgis/rest/services/Parcels/Parcels/MapServer/0, and the similar Parcels/homestead and Parcels/propertyuse layers) exposes just FID/Shape/Id/Cached - a cached tile index with no PCN, land-use, zoning or value attributes. Full attribute data (PCN, values, land use) requires the bulk download or the PAPA public search (pbcpao.gov), not a live queryable API."
+    },
+    "zoning": {
+      "url": "https://maps.co.palm-beach.fl.us/arcgis/rest/services/OpenData/Planning_Open_Data/MapServer/9",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "FCODE",
+        "zoning_desc": "ZONING_DESC"
+      },
+      "notes": "Palm Beach County Planning, Zoning & Building 'Zoning' layer (FNAME = Zoning District Name, FCODE = Zoning District Code) from the OpenData/Planning_Open_Data MapServer, unincorporated county zoning."
+    },
+    "future_land_use": {
+      "url": "https://maps.co.palm-beach.fl.us/arcgis/rest/services/OpenData/Planning_Open_Data/MapServer/6",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "'Future Land Use' layer in same OpenData/Planning_Open_Data MapServer as Zoning (layer 9); fields not individually confirmed but service/folder verified live. Layer 7 'Existing Land Use' also available in this service."
+    }
+  },
+  "pasco": {
+    "parcels": {
+      "url": "https://mapping.pascopa.com/arcgis/rest/services/Parcels/MapServer/3",
+      "key_field": "ParcelID",
+      "field_map": {
+        "acreage": "VAL_ACRES",
+        "land_value": "VAL_LAND",
+        "building_value": "VAL_BLDG_DEPR",
+        "total_value": "VAL_APPR",
+        "city": "PHYS_CITY"
+      },
+      "notes": "'Parcels (Clickable Info)' layer (id 3) on Pasco County Property Appraiser's Cadastral MapServer - joined attribute layer with owner (NAD_NAME_1/2), site address, sale info (SALE_YEAR/AMT), and value fields. The same MapServer also exposes separate thematic layers for Land Value (10), Building Value (12), Assessed Value (14), Property Class Code (16) if per-theme geometry is preferred."
+    },
+    "zoning": {
+      "url": "https://mapping.pascopa.com/arcgis/rest/services/Land_Use/MapServer/1",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONEID"
+      },
+      "notes": "'BOCC Zoning' layer on Pasco County Property Appraiser's Land_Use MapServer. ZN_TYPE/ZN_STR fields also present. Companion layer 0 = 'BOCC Future Land Use'."
+    },
+    "future_land_use": {
+      "url": "https://mapping.pascopa.com/arcgis/rest/services/Land_Use/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {},
+      "notes": "'BOCC Future Land Use' layer, companion to BOCC Zoning (layer 1) in the same MapServer."
+    }
+  },
+  "pinellas": {
+    "parcels": {
+      "url": "https://services.arcgis.com/f5HgUpxURgEzTccH/ArcGIS/rest/services/Parcel_JOIN/FeatureServer/0",
+      "key_field": "STRAP",
+      "field_map": {
+        "acreage": "PARCELACRES",
+        "land_use_code": "PROPERTY_USE",
+        "land_use_desc": "PROPERTY_USE_DESCRIPTION",
+        "land_value": "JUST_LAND",
+        "building_value": "JUST_BUILDING",
+        "total_value": "JUST_MARKET_VALUE",
+        "city": "SITE_CITY"
+      },
+      "notes": "'Parcel_JOIN' hosted Feature Service - copyrightText confirms 'DATA STEWARD AND EDITOR: Pinellas County Property Appraiser (727) 464-3207 www.pcpao.org'. serviceDescription: 'Derived from the Pinellas PAO's parcel data set for PCEM purposes. STATIC, updated semi-monthly.' Rich attribute set (105 fields) including owner, sales, flood, and value info."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "'Zoning (Unincorporated)' dataset found on Pinellas County Enterprise GIS open data hub (https://new-pinellas-egis.opendata.arcgis.com/datasets/Pinellas-eGIS::zoning-unincorporated/about, item id 6788fdb8ac104cb18e1600fd7cf194f8) but the underlying hosted FeatureServer URL could not be resolved - the AGOL sharing/rest content-item endpoint for this org returns a 403 'Token Required'/permission error even for this public dataset, and the Hub site is a JS-rendered SPA with no static REST link in page source. Also see the county's live 'Zoning/Land Use Unincorporated Lookup' app at https://egis.pinellas.gov/apps/egis/apps.html and Forward Pinellas Countywide Plan Map at https://forwardpinellas.org/document-portal/countywide-plan-map-gis/ for the county-wide future land use equivalent."
+    }
+  },
+  "polk": {
+    "parcels": {
+      "url": "https://gis.polk-county.net/hosting/rest/services/All-In-One_Viewer/Property_Appraiser/MapServer/134",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "TOT_ACREAGE",
+        "land_use_code": "DOR_CD",
+        "land_use_desc": "DOR_USE_CODE_DESC",
+        "land_value": "TOT_LND_VAL",
+        "building_value": "TOT_BLD_VAL",
+        "total_value": "TOTALVAL",
+        "city": "PROP_CITY"
+      },
+      "exclude_fields": [
+        "NAME",
+        "MAIL_ADDR_1",
+        "MAIL_ADDR_2",
+        "MAIL_ADDR_3",
+        "MAIL_ZIP"
+      ],
+      "notes": "Polk County BoCC public GIS, All-In-One_Viewer/Property_Appraiser 'Parcels' layer (438,562 parcels, Property Appraiser CAMA attributes: DOR use code, land/building/total values, assessed/taxable, acreage, site address/city). Replaces the POLK_PARCEL_BOUNDARIES_MIL1 layer, which only exposes a 3,494-feature subset. Owner name and mailing address fields are excluded on ingest."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No standalone county-wide 'Zoning' REST layer found on gis.polk-county.net despite checking the Planning, PublicViewer, and All-In-One_Viewer folders' 'Map_Land_Use_and_Zoning'/'Land_Use_and_Zoning' MapServers (layers found: Special Protection Areas, DRIs, SPDs, PDs, PUDs, Selected Area Plans, Overlay Wetlands, Green Swamp, Development Areas, Future Land Use 2030 - no base 'Zoning' layer). Polk County's Future Land Use 2030 layer (e.g. https://gis.polk-county.net/hosting/rest/services/PublicViewer/Map_Land_Use_and_Zoning/MapServer/9) is the closest queryable equivalent. For parcel-level zoning lookups see the Property Appraiser's interactive map at https://map.polkflpa.gov/ or the county's public data portal https://polk-county-geoportal-open-data-polk-bocc-gis.hub.arcgis.com/."
+    },
+    "future_land_use": {
+      "url": "https://gis.polk-county.net/hosting/rest/services/PublicViewer/Map_Land_Use_and_Zoning/MapServer/9",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLU_LDC",
+        "land_use_desc": "FLUNAME",
+        "acreage": "Acres",
+        "city": "CITY_NAME"
+      },
+      "notes": "Polk County 'Future Land Use 2030' (PublicViewer/Map_Land_Use_and_Zoning layer 9, 5,414 polygons). County has no standalone zoning REST layer; FLU is the closest county-wide equivalent."
+    }
+  },
+  "putnam": {
+    "parcels": {
+      "url": "https://pamap.putnam-fl.gov/server/rest/services/CadastralData/FeatureServer/2",
+      "key_field": "PARCELID",
+      "field_map": {
+        "land_use_code": "USECD",
+        "land_use_desc": "USEDSCRP",
+        "land_value": "LNDVALUE",
+        "total_value": "CNTASSDVAL"
+      },
+      "notes": "Putnam County GIS 'Parcels' layer (CadastralData service) combining cadastral + CAMA data. No distinct building-value field (LNDVALUE is land value only; CNTASSDVAL is current total assessed value). No numeric acreage field (STATEDAREA is a text description, not a number). No zoning field on this layer."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public REST/ArcGIS service found for Putnam County zoning. County's own GIS server (https://pamap.putnam-fl.gov/server/rest/services) exposes only Aerials2023, CadastralData, CamaSales, FieldAppraiser, Labels, ReferencePoints - no Zoning service/folder as of Sept 2026. Putnam publishes zoning as a static map/PDF instead: https://www.putnam-fl.gov/departments/development-services/planning-and-zoning/zoning/ and quarterly zoning-map PDFs on the Putnam Data Hub, e.g. https://putnam-pcgis.hub.arcgis.com/documents/08855a60328c42b988c0804bd90e126c"
+    }
+  },
+  "santa_rosa": {
+    "parcels": {
+      "url": "https://services.arcgis.com/Eg4L1xEv2R3abuQd/arcgis/rest/services/ParcelsOpenData/FeatureServer/0",
+      "key_field": "PAR_NUM",
+      "field_map": {
+        "acreage": "CALC_ACRE",
+        "land_use_code": "PRuse",
+        "land_use_desc": "PropertyUs",
+        "city": "City"
+      },
+      "notes": "Santa Rosa County GIS open-data parcels layer ('ParcelsOpenData', built from the Property Appraiser's parcel dataset). No land/building/total value fields present in this public layer."
+    },
+    "zoning": {
+      "url": "https://cloud.santarosa.fl.gov/arcgis/rest/services/ZONE_NoCity/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "DISTRICT",
+        "zoning_desc": "Description"
+      },
+      "notes": "Unincorporated-county zoning districts ('Zone_NoCity...' layer, excludes municipal zoning). Same data is also hosted at https://services.arcgis.com/Eg4L1xEv2R3abuQd/ArcGIS/rest/services/Zoning/FeatureServer/0."
+    },
+    "future_land_use": {
+      "url": "https://services.arcgis.com/Eg4L1xEv2R3abuQd/arcgis/rest/services/FutureLandUse/FeatureServer/0",
+      "key_field": "FID",
+      "field_map": {
+        "land_use_code": "CATEGORY",
+        "land_use_desc": "Descriptio"
+      },
+      "notes": "Santa Rosa County Future Land Use layer (unincorporated county)."
+    }
+  },
+  "sarasota": {
+    "parcels": {
+      "url": "https://services3.arcgis.com/icrWMv7eBkctFu1f/arcgis/rest/services/ParcelHosted/FeatureServer/0",
+      "key_field": "ACCOUNT",
+      "field_map": {
+        "acreage": "MeasuredAcreage",
+        "zoning_code": "ZONING",
+        "total_value": "JUST",
+        "building_value": "IMPROVEMT",
+        "city": "LOCCITY"
+      },
+      "notes": "'ParcelHosted' - Sarasota County Enterprise GIS hosted Feature Service. Service description: 'Sarasota County Parcels with appended ownership and site addresses, property valuations and tax info, and land-use and zoning information.' No explicit land-value or land-use-code field was identified in the field list (ASSD/TXBL/JUST are the value fields; land-use code not clearly separated from ZONING) - verify against a sample record before relying on land_value/land_use_code."
+    },
+    "zoning": {
+      "url": "https://ags3.scgov.net/server/rest/services/Hosted/CountyZoning/FeatureServer/0",
+      "key_field": "objectid",
+      "field_map": {
+        "zoning_code": "zoningcode",
+        "zoning_desc": "zoningdesignation",
+        "acreage": "estimatedacreage",
+        "city": "municipality"
+      },
+      "notes": "'CountyZoning' hosted Feature Service on Sarasota County's ags3.scgov.net ArcGIS Server (found via item lookup, item id c8d0d385abfd42fb8a5e885be928374a). Also has zoninggroup, ordinancenumber, municipality fields."
+    }
+  },
+  "seminole": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public ArcGIS REST endpoint found after several probes (gis.seminolecountyfl.gov and egis.seminolecountyfl.gov do not resolve; no county ArcGIS Hub/opendata.arcgis.com site with a hosted parcels service was located). Seminole County publishes parcel data only as downloadable Esri file-geodatabase/shapefile bundles via https://www.seminolecountyfl.gov/departments-services/information-technology/gis-geographic-information-systems/gis-data-shapefiles (includes Parcels + ParcelTable1). The Seminole County Property Appraiser's interactive map at https://map.scpafl.org/ (Public Appraisal Map v5.4.1) is a parcel viewer with no discoverable public API."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "Zoning is included in the same bulk GIS data-shapefiles download listed above (https://www.seminolecountyfl.gov/departments-services/information-technology/gis-geographic-information-systems/gis-data-shapefiles), which lists a 'Zoning' layer alongside Parcels/Streets/Addresses. No REST/FeatureServer endpoint was found."
+    }
+  },
+  "st_johns": {
+    "parcels": {
+      "url": "https://www.gis.sjcfl.us/portal_sjcgis/rest/services/Parcel/MapServer/0",
+      "key_field": "STRAP",
+      "field_map": {
+        "land_use_code": "USE_CODE",
+        "land_use_desc": "USE_DESC"
+      },
+      "notes": "St. Johns County GIS Division 'Parcel' MapServer (portal_sjcgis). Uses the same regional CAMA/GIS export schema as Volusia (PC/PC_DESC, CALCACRES, LANDACRES, and taxable-value fields STXBL/NSTXBL/COTXBL/CITXBL) - no separate land/building/total market value fields available. Also carries PIN/PID/PARID identifiers."
+    },
+    "zoning": {
+      "url": "https://www.gis.sjcfl.us/portal_sjcgis/rest/services/Zoning/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONING"
+      },
+      "notes": "Zoning classifications for unincorporated St. Johns County, maintained by St. Johns County GIS Division / Growth Management. No stored description field - zone descriptions live only in the map renderer's legend."
+    },
+    "future_land_use": {
+      "url": "https://www.gis.sjcfl.us/portal_sjcgis/rest/services/Future_Land_Use/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FUTLUSE1"
+      },
+      "notes": "Future Land Use boundaries for St. Johns County."
+    }
+  },
+  "st_lucie": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public parcel-boundary REST/FeatureServer layer found. St. Lucie County's ArcGIS Hub (data-slc.opendata.arcgis.com, DCAT feed checked) lists ~40 datasets (Roads, Zoning, Future Land Use, Flood Zones, etc.) but no Parcels layer. Parcel/CAMA maps are served through the Property Appraiser's own system at https://saintluciecountypropertyappraiser.org/gis-maps/ and https://map.paslc.gov/search/ (Schneider/BHA 'StLucie_PAT' tax-map application), which is a search-based viewer, not an open queryable parcel REST service."
+    },
+    "zoning": {
+      "url": "https://slcgis.stlucieco.gov/hosting/rest/services/LandUse/Zoning/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "Zoned",
+        "acreage": "Acres"
+      },
+      "notes": "St. Lucie County GIS Division hosted Zoning layer (ArcGIS Hub dataset 'Zoning', slcgis.stlucieco.gov). Found via the county's DCAT open-data feed."
+    },
+    "future_land_use": {
+      "url": "https://slcgis.stlucieco.gov/hosting/rest/services/LandUse/FutureLandUse/MapServer/0",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "flucode",
+        "acreage": "area_ac"
+      },
+      "notes": "St. Lucie County GIS Division hosted Future Land Use layer. Query output uses lowercase field names (flucode, area_ac) unlike the layer metadata."
+    }
+  },
+  "sumter": {
+    "parcels": {
+      "url": "https://www45.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/16",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "zoning_code": "ZONING",
+        "land_use_code": "DORUSECODE",
+        "land_value": "ASSD_LND",
+        "building_value": "ASSD_BLD",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "SWFWMD-hosted mirror ('Sumter County Parcels' layer) of Sumter County Property Appraiser cadastral data, DOR-derived schema. Sumter County's own ArcGIS Online org also hosts a 'Parcels_gdb' layer (https://services8.arcgis.com/FTrtUCmxaVKdPC5e/ArcGIS/rest/services/Parcels_gdb/FeatureServer/0, key field PIN) with richer land-use fields (DOR_LUC, PropUseCod/Des, Acres_Lot_) but no assessed-value fields - use in combination if needed."
+    },
+    "zoning": {
+      "url": "https://gis.sumtercountyfl.gov/sumtergis/rest/services/Interactive/FLU_Zoning/FeatureServer/11",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "Zone_Type"
+      },
+      "notes": "'Zoning' layer (countywide/unincorporated), layer 11 of Sumter County's official Interactive/FLU_Zoning service. Field semantics of ZONING_C_1/ZONING_C_2 vs Zone_Type could not be fully confirmed from metadata alone - spot-check sample records before production use. Municipal zoning is split into separate layers 6-10 (Bushnell/Center Hill/Coleman/Webster/Wildwood) of the same service."
+    },
+    "future_land_use": {
+      "url": "https://gis.sumtercountyfl.gov/sumtergis/rest/services/Interactive/FLU_Zoning/FeatureServer/5",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "Current_FLU",
+        "acreage": "ACREAGE"
+      },
+      "notes": "'Unincorporated Future Land Use' layer, same service as zoning above."
+    }
+  },
+  "suwannee": {
+    "parcels": {
+      "url": "https://services6.arcgis.com/B8iKcMs83hgqommE/arcgis/rest/services/Parcels_Suwannee_2024/FeatureServer/0",
+      "key_field": "PARCELID",
+      "field_map": {
+        "acreage": "ACRES",
+        "zoning_code": "ZONING",
+        "land_use_code": "DORUSECODE",
+        "land_value": "ASSD_LND",
+        "building_value": "ASSD_BLD",
+        "total_value": "ASSD_TOT",
+        "city": "SCITY"
+      },
+      "notes": "Suwannee County's own official hosted parcels layer (2024 vintage, owner account countyofsuwannee), DOR-derived schema shared with the Levy/Sumter SWFWMD mirrors. Zoning is embedded in this same layer (ZONING field) - no separate/dedicated zoning REST service was found for Suwannee County. The Property Appraiser's public site (suwannee.floridapa.com/GIS/, suwanneepa.com/GIS_Support/) offers only an interactive map viewer with no exposed API."
+    }
+  },
+  "taylor": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public ArcGIS REST/API layer found for Taylor County. Parcel search via qPublic: https://qpublic.net/fl/taylor/ (Taylor County Property Appraiser's own qPublic portal, confirmed via search)."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "Taylor County Planning & Zoning maps page fetched and confirmed working: https://www.taylorcountygov.com/departments/planning_and_zoning/maps.php - offers only static PDF map downloads (flood, evacuation routes, wetlands, etc.), no interactive GIS/REST service exposed."
+    }
+  },
+  "union": {
+    "parcels": {
+      "type": "manual",
+      "note": "No public ArcGIS REST/API layer found for Union County, FL (do not confuse with an ArcGIS-hosted 'UnionParcels02102026' / 'ZoningDistrict' service under org oX0kbxItOpLtURFa owned by lsmith_unioncounty - verified via spatial reference/extent (NJ State Plane, WKID 2271) and field names that this is Union County, NEW JERSEY, not Florida - excluded). Union County Property Appraiser GIS/advanced search page found via search: https://union.floridapa.com/gis/ (main site https://union.floridapa.com/)."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public REST/API zoning layer found for Union County, FL in a focused search. No dedicated county zoning GIS portal located."
+    }
+  },
+  "volusia": {
+    "parcels": {
+      "url": "https://maps1.vcgov.org/arcgis/rest/services/CountywideZoning/MapServer/0",
+      "key_field": "PARID",
+      "field_map": {
+        "acreage": "CALCACRES",
+        "land_use_code": "PC",
+        "land_use_desc": "PC_DESC",
+        "city": "CITYNAME"
+      },
+      "notes": "'Parcels' layer (id 0) inside the Countywide Zoning service, published by Volusia County GIS. Also carries LANDACRES/LANDSQFT and taxable-value fields (STXBL/NSTXBL/COTXBL/CITXBL) but no separate land/building/total market value fields, so those were left out of field_map rather than guessed."
+    },
+    "zoning": {
+      "url": "https://maps1.vcgov.org/arcgis/rest/services/CountywideZoning/MapServer/2",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "GenericZoningCode",
+        "zoning_desc": "GenericDescription",
+        "acreage": "Acres",
+        "city": "CityName"
+      },
+      "notes": "'Countywide Zoning' layer - crosswalks each jurisdiction's own zoning code (JUR_ZONING, JurisdictionCode) to a generalized GenericZoningCode/GenericDescription. Includes City/unincorporated zoning countywide."
+    }
+  },
+  "wakulla": {
+    "parcels": {
+      "url": "https://services9.arcgis.com/vAltLjtfYIJc7pDt/arcgis/rest/services/Wakulla_County_Parcels/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "acreage": "MAP_ACRES"
+      },
+      "notes": "Official Wakulla County parcels layer ('a layer of parcels in wakulla county'), hosted on county ArcGIS Online org (owner brandon.geiger), no auth required, ~18MB, editable/sync-enabled service. Layer is geometry-focused: only OBJECTID, MAP_ACRES, PARCEL_ID, GlobalID plus shape fields - no land use, zoning, or valuation attributes on this layer itself."
+    },
+    "zoning": {
+      "url": "https://services9.arcgis.com/vAltLjtfYIJc7pDt/arcgis/rest/services/Zoning_Map/FeatureServer/30",
+      "key_field": "FID",
+      "field_map": {
+        "zoning_code": "CUR_ZONING",
+        "zoning_desc": "ZONE_TYPE"
+      },
+      "notes": "Official Wakulla County zoning layer ('Zoning_Master Pro'), same ArcGIS Online org as the parcels layer (owner acheek, county GIS staff). Service description: 'official zoning information for property located in Wakulla County' per the county Land Development Code."
+    }
+  },
+  "walton": {
+    "parcels": {
+      "url": "https://services1.arcgis.com/TaXHPwWfIMuzJ7Ov/arcgis/rest/services/EnerGov/FeatureServer/4",
+      "key_field": "PARCELNO",
+      "field_map": {
+        "acreage": "GIS_ACRES",
+        "land_use_code": "USE_CODE",
+        "land_use_desc": "USE_DESC",
+        "land_value": "COMMON_LAND",
+        "building_value": "BLDG_VALUE",
+        "total_value": "JUST_VALUE"
+      },
+      "notes": "Walton County official 'EnerGov Rest Service - Walton County GIS Data made for EnerGov application also general use for Walton County GIS data needs - Updated Weekly' (owner laikevin, county GIS org). This 54-layer service also includes Zoning (19) and Future Land Use (15). Also considered a separate 'WaltonCountyPropeties' service (same org, Walton_County_Parcels layer) with richer valuation fields (JUST_VALUE, APPRAISED_VALUE, AG_LAND, etc. as strings) but only updated as of 2026-05-16 vs this weekly-updated EnerGov service - preferred EnerGov as primary source."
+    },
+    "zoning": {
+      "url": "https://services1.arcgis.com/TaXHPwWfIMuzJ7Ov/arcgis/rest/services/EnerGov/FeatureServer/19",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "zoning_code": "ZONE_CLASS"
+      },
+      "notes": "Walton County official Zoning layer within the same weekly-updated EnerGov GIS service. Also carries PLAN_AREA, Ordinance_Number/Date, Previous_Zoning fields for provenance."
+    },
+    "future_land_use": {
+      "url": "https://services1.arcgis.com/TaXHPwWfIMuzJ7Ov/arcgis/rest/services/EnerGov/FeatureServer/15",
+      "key_field": "OBJECTID",
+      "field_map": {
+        "land_use_code": "FLU_CLASS"
+      },
+      "notes": "Walton County official Future Land Use layer within the same EnerGov GIS service. Historical FLU snapshots also available as layers 16 (1996-2010) and 17 (2011-2018)."
+    }
+  },
+  "washington": {
+    "parcels": {
+      "url": "https://services.arcgis.com/Ie0K5n4UyLAfvdiX/arcgis/rest/services/Washington_2024_DOR_Parcels/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "Washington County parcel layer in standard FL DOR NAL (statewide parcel tax roll) field layout, current as of Aug 2024, hosted by GIS consultant matthew.gore9 (also publishes other FDOT/local GIS work). Extent (FIPS 3086, bbox ~208664-263039 / 710668-759038) confirms this is scoped to Washington County only, not statewide, despite generic service description text. No dedicated acreage field (only LND_SQFOOT in square feet); no separate building/improvement value field in the standard DOR layout (JV includes land+improvements)."
+    },
+    "zoning": {
+      "type": "manual",
+      "note": "No public REST/API zoning layer found for Washington County. County Planning Department page (fetched, confirmed working): https://www.washingtonfl.com/departments/planning/about/ - links an interactive GIS/zoning map maintained by the Emerald Coast Regional Council (formerly West Florida Regional Planning Council), but no exposed zoning FeatureServer/MapServer endpoint was found (only the Future Land Use layer below is exposed as a REST service)."
+    },
+    "future_land_use": {
+      "url": "https://services2.arcgis.com/xDFo56nFuq1SBnBw/arcgis/rest/services/WashingtonFLUM_D/FeatureServer/0",
+      "key_field": "FID",
+      "field_map": {
+        "land_use_code": "FLU"
+      },
+      "notes": "Washington County Future Land Use layer, published by West Florida Regional Planning Council (org owner jmp507), embedded in the county's official 'Washington County Future Land Use Map' web map (25.7k views, last updated 2025-05-09). Includes historical/municipal companion layers (e.g. Wausau FLUM) not captured here."
+    }
+  }
+}

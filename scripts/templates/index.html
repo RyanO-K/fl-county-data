@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FL County Data Explorer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <h1>FL County Data Explorer</h1>
+    <nav class="main-tabs" aria-label="Main sections">
+      <button type="button" class="main-tab active" data-main-tab="browse">Browse Data</button>
+      <button type="button" class="main-tab" data-main-tab="values">Parcel Values</button>
+      <button type="button" class="main-tab" data-main-tab="status">Pipeline Status</button>
+    </nav>
+    <div class="topbar-right">
+      <span id="conn-indicator" class="pill pill-ok" title="Live update status">live</span>
+    </div>
+  </header>
+  {% if demo %}
+  <div class="demo-banner">
+    <b>Public demo.</b> This site serves a {{ demo.counties|length }}-county subset so it fits a free host; the full build covers all 67 Florida counties (10.5M valued parcels) and refreshes daily.
+    Counties here: {{ demo.counties|map('replace', '_', ' ')|map('title')|join(', ') }}.
+    Source code and data provenance: <a href="https://github.com/RyanO-K/fl-county-data" target="_blank" rel="noopener">github.com/RyanO-K/fl-county-data</a>.
+  </div>
+  {% endif %}
+
+  <section id="status-panel" class="panel" data-main-panel="status" hidden>
+    <div class="panel-header">
+      <h2>Pipeline Status</h2>
+      <div class="panel-header-right">
+        <span class="hint">auto-refreshes every 20s</span>
+        <button type="button" class="fullscreen-btn" data-fullscreen-target="status-panel" title="Toggle fullscreen">&#x26F6; Fullscreen</button>
+      </div>
+    </div>
+    <div id="status-summary" class="status-summary"></div>
+    <div class="table-wrap">
+      <table id="status-table">
+        <thead>
+          <tr>
+            <th>County</th>
+            <th>Dataset</th>
+            <th>Status</th>
+            <th>Rows (last run)</th>
+            <th>Rows (current)</th>
+            <th>Started</th>
+            <th>Finished</th>
+          </tr>
+        </thead>
+        <tbody id="status-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="browse-panel" class="panel" data-main-panel="browse">
+    <div class="panel-header">
+      <h2>Browse Features</h2>
+      <div class="panel-header-right">
+        <span class="hint" id="results-hint"></span>
+        <button type="button" class="fullscreen-btn" data-fullscreen-target="browse-panel" title="Toggle fullscreen">&#x26F6; Fullscreen</button>
+      </div>
+    </div>
+
+    <form id="filters" class="filters">
+      <label>County
+        <select id="f-county"><option value="">All</option></select>
+      </label>
+      <label>Dataset
+        <select id="f-dataset"><option value="">All</option></select>
+      </label>
+      <label>Zoning code
+        <select id="f-zoning"><option value="">All</option></select>
+      </label>
+      <label>Land use code
+        <select id="f-landuse"><option value="">All</option></select>
+      </label>
+      <label>Min acreage
+        <input type="number" step="any" id="f-min-acre" placeholder="0">
+      </label>
+      <label>Max acreage
+        <input type="number" step="any" id="f-max-acre" placeholder="any">
+      </label>
+      <label class="grow">Search
+        <input type="text" id="f-q" placeholder="zoning / land use description, code, parcel id...">
+      </label>
+      <button type="submit">Apply filters</button>
+      <button type="button" id="f-reset">Reset</button>
+    </form>
+
+    <div class="view-toggle">
+      <button type="button" class="tab active" data-view="table">Table</button>
+      <button type="button" class="tab" data-view="map">Map</button>
+    </div>
+
+    <div id="view-table">
+      <div class="table-wrap">
+        <table id="features-table">
+          <thead>
+            <tr>
+              <th>County</th>
+              <th>Dataset</th>
+              <th>Feature key</th>
+              <th>City</th>
+              <th>Acreage</th>
+              <th>Zoning</th>
+              <th>Land use</th>
+              <th>Land value</th>
+              <th>Building value</th>
+              <th>Total value</th>
+              <th>Just value</th>
+              <th>Last sale</th>
+              <th>Last synced</th>
+            </tr>
+          </thead>
+          <tbody id="features-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button type="button" id="page-prev">&laquo; Prev</button>
+        <span id="page-info"></span>
+        <button type="button" id="page-next">Next &raquo;</button>
+        <label class="grow-right">Per page
+          <select id="per-page">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div id="view-map" hidden>
+      <p class="hint" id="map-hint">Select a county and dataset above and click "Apply filters" to render matching polygons (capped for performance).</p>
+      <div id="map"></div>
+      <p class="map-resize-hint">Drag the bottom-right corner of the map to resize it. Dashed lines are county boundaries (U.S. Census); click a county to select it.</p>
+      <div id="map-legend" class="legend"></div>
+    </div>
+  </section>
+
+  <section id="values-panel" class="panel" data-main-panel="values" hidden>
+    <div class="panel-header">
+      <h2>Parcel Values</h2>
+      <div class="panel-header-right">
+        <span class="hint" id="values-hint"></span>
+        <button type="button" class="fullscreen-btn" data-fullscreen-target="values-panel" title="Toggle fullscreen">&#x26F6; Fullscreen</button>
+      </div>
+    </div>
+
+    <form id="values-filters" class="filters">
+      <label>County
+        <select id="v-county"><option value="">All</option></select>
+      </label>
+      <label>DOR use code
+        <select id="v-usecode"><option value="">All</option></select>
+      </label>
+      <label>Min just value
+        <input type="number" step="any" id="v-min-jv" placeholder="0">
+      </label>
+      <label>Max just value
+        <input type="number" step="any" id="v-max-jv" placeholder="any">
+      </label>
+      <label>Min last sale
+        <input type="number" step="any" id="v-min-sale" placeholder="0">
+      </label>
+      <label>Max last sale
+        <input type="number" step="any" id="v-max-sale" placeholder="any">
+      </label>
+      <label class="grow">Search
+        <input type="text" id="v-q" placeholder="parcel id or site address...">
+      </label>
+      <label>Sort by
+        <select id="v-sort">
+          <option value="just_value">Just value</option>
+          <option value="land_value">Land value</option>
+          <option value="sale_price">Last sale price</option>
+          <option value="sale_year">Last sale date</option>
+          <option value="parcel_id">Parcel ID</option>
+        </select>
+      </label>
+      <label>Direction
+        <select id="v-dir">
+          <option value="desc">High to low</option>
+          <option value="asc">Low to high</option>
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
+
+    <div class="table-wrap">
+      <table id="values-table">
+        <thead>
+          <tr>
+            <th>County</th>
+            <th>Parcel ID</th>
+            <th>Site address</th>
+            <th>City</th>
+            <th>Use code</th>
+            <th>Just value</th>
+            <th>Assessed value</th>
+            <th>Taxable value</th>
+            <th>Land value</th>
+            <th>Land sq ft</th>
+            <th>Last sale</th>
+            <th>Qualified</th>
+            <th>Year built</th>
+          </tr>
+        </thead>
+        <tbody id="values-tbody"></tbody>
+      </table>
+    </div>
+    <p id="values-empty" class="hint" hidden>Statewide values are still loading — check Pipeline Status.</p>
+    <div class="pager">
+      <button type="button" id="v-page-prev">&laquo; Prev</button>
+      <span id="v-page-info"></span>
+      <button type="button" id="v-page-next">Next &raquo;</button>
+      <label class="grow-right">Per page
+        <select id="v-per-page">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="250">250</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <div id="detail-modal" class="modal" hidden>
+    <div class="modal-content">
+      <button type="button" id="detail-close" class="modal-close">&times;</button>
+      <h3 id="detail-title">Feature detail</h3>
+      <div id="detail-map" hidden></div>
+      <p id="detail-map-note" class="hint" hidden></p>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+demo/
+logs/
+*.db
+*.db-wal
+*.db-shm
+scripts/sources.pilot5.backup.json
+scripts/sources_batch_a.json
+scripts/sources_batch_b.json

@@ -1,0 +1,20 @@
+# Render Blueprint for the public demo (free tier). The full 67-county
+# database runs locally; the deployed site serves a subset built by
+# scripts/make_demo_db.py and published as a GitHub Release asset.
+services:
+  - type: web
+    name: fl-county-data
+    runtime: python
+    plan: free
+    region: ohio
+    buildCommand: pip install -r requirements.txt && python scripts/fetch_demo_db.py
+    startCommand: gunicorn --chdir scripts -w 2 --threads 4 --timeout 120 -b 0.0.0.0:$PORT app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: FL_COUNTY_DB
+        value: /opt/render/project/src/data/fl_county_data.db
+      - key: DEMO_MODE
+        value: "1"
+      - key: DEMO_DB_URL
+        value: https://github.com/RyanO-K/fl-county-data/releases/download/demo-data/fl_county_demo.db.gz
