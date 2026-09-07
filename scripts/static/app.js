@@ -110,6 +110,61 @@ function esc(v) {
   }[c]));
 }
 
+/* ---------------------------------------------------------------------
+ * Detail-row labels with hover explanations (glossary.js)
+ *
+ * Abbreviated tax-roll field names (JV, DOR_UC, AV_NSD, TOT_LVG_AR ...) mean
+ * nothing on sight, so every label we can explain is wrapped in an <abbr> with
+ * a dotted underline and a help cursor telling the reader a tooltip is there.
+ * Labels we cannot explain are left plain.
+ * ------------------------------------------------------------------- */
+function glossaryTh(label, desc, rawKey) {
+  const text = esc(label);
+  if (desc) {
+    return `<th><abbr class="gloss" title="${esc(rawKey ? `${rawKey} — ${desc}` : desc)}">${text}</abbr></th>`;
+  }
+  if (rawKey) {
+    const generic = (window.FLGlossary && FLGlossary.generic) ||
+      "Raw attribute from the source layer.";
+    return `<th title="${esc(`${rawKey} — ${generic}`)}">${text}</th>`;
+  }
+  return `<th>${text}</th>`;
+}
+/* Label for one of our normalized columns ("Just value", "Acreage", ...). */
+function fieldTh(label) {
+  return glossaryTh(label, window.FLGlossary ? FLGlossary.field(label) : null, null);
+}
+/* Label for a raw source-layer attribute key (DOR_UC, PHY_ADDR1, ...). */
+function attrTh(key) {
+  return glossaryTh(prettyKey(key), window.FLGlossary ? FLGlossary.attr(key) : null, key);
+}
+
+/* ---------------------------------------------------------------------
+ * Detail modal open/close
+ *
+ * Both details share #detail-modal. Opening locks the page behind it so the
+ * only scrollbar on screen belongs to the modal's own body; the padding
+ * compensates for the page scrollbar we just removed so nothing shifts.
+ * ------------------------------------------------------------------- */
+function openDetailModal(title) {
+  const modal = document.getElementById("detail-modal");
+  document.getElementById("detail-title").textContent = title;
+  // Measure the page scrollbar before hiding it, so re-opening an already open
+  // modal does not measure zero and undo the compensation.
+  if (modal.hidden) {
+    const gutter = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.paddingRight = gutter > 0 ? `${gutter}px` : "";
+  }
+  document.body.classList.add("modal-open");
+  modal.hidden = false;
+}
+
+function closeDetailModal() {
+  document.getElementById("detail-modal").hidden = true;
+  document.body.classList.remove("modal-open");
+  document.body.style.paddingRight = "";
+}
+
 function fmtSaleDate(year, month) {
   if (!year) return "—";
   return month ? `${year}-${String(month).padStart(2, "0")}` : String(year);
@@ -402,12 +457,10 @@ function showDetailMap(geometryJson, note) {
  * Feature detail modal
  * ------------------------------------------------------------------- */
 async function showDetail(id) {
-  const modal = document.getElementById("detail-modal");
   const body = document.getElementById("detail-body");
-  document.getElementById("detail-title").textContent = "Feature detail";
   body.textContent = "Loading...";
   showDetailMap(null, null);
-  modal.hidden = false;
+  openDetailModal("Feature detail");
   try {
     const data = await fetchJSON(`/api/feature/${id}`);
     showDetailMap(data.geometry_geojson, "No boundary geometry stored for this feature.");
@@ -431,16 +484,17 @@ async function showDetail(id) {
       ["Last sale", lastSaleCell(data.sale_price, data.sale_date)],
       ["Last synced", fmtTime(data.last_synced_at)],
     ];
-    const rowsHtml = (pairs) => pairs.map(([k, v]) =>
-      `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+    const summaryHtml = summary.map(([k, v]) =>
+      `<tr>${fieldTh(k)}<td>${v}</td></tr>`).join("");
     const attrRows = Object.entries(attrs)
-      .filter(([k]) => !/^(shape[._]|st_)/i.test(k))
-      .map(([k, v]) => [esc(prettyKey(k)), esc(v)]);
+      .filter(([k]) => !/^(shape[._]|st_)/i.test(k));
+    const attrHtml = attrRows.map(([k, v]) =>
+      `<tr>${attrTh(k)}<td>${esc(v)}</td></tr>`).join("");
     body.innerHTML =
-      `<table class="detail-table">${rowsHtml(summary)}</table>` +
+      `<table class="detail-table">${summaryHtml}</table>` +
       `<h4>Source attributes</h4>` +
       (attrRows.length
-        ? `<table class="detail-table">${rowsHtml(attrRows)}</table>`
+        ? `<table class="detail-table">${attrHtml}</table>`
         : `<p class="hint">No additional attributes.</p>`);
   } catch (e) {
     body.textContent = "Failed to load detail: " + e.message;
@@ -1076,12 +1130,10 @@ async function loadValuesTable(isPoll) {
 }
 
 async function showValueDetail(county, parcelId) {
-  const modal = document.getElementById("detail-modal");
   const body = document.getElementById("detail-body");
-  document.getElementById("detail-title").textContent = "Parcel value detail";
   body.textContent = "Loading...";
   showDetailMap(null, null);
-  modal.hidden = false;
+  openDetailModal("Parcel value detail");
   try {
     const data = await fetchJSON(`/api/value/${encodeURIComponent(county)}/${encodeURIComponent(parcelId)}`);
     showDetailMap(data.geometry_geojson,
@@ -1107,7 +1159,7 @@ async function showValueDetail(county, parcelId) {
       ["Prior sale qualified", esc(data.sale2_qual)],
       ["Last synced", fmtTime(data.last_synced_at)],
     ];
-    const rowsHtml = rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+    const rowsHtml = rows.map(([k, v]) => `<tr>${fieldTh(k)}<td>${v}</td></tr>`).join("");
     body.innerHTML = `<table class="detail-table">${rowsHtml}</table>`;
   } catch (e) {
     body.textContent = "Failed to load detail: " + e.message;
@@ -1238,11 +1290,14 @@ function initEvents() {
   });
   document.addEventListener("fullscreenchange", onFullscreenChange);
 
-  document.getElementById("detail-close").addEventListener("click", () => {
-    document.getElementById("detail-modal").hidden = true;
-  });
+  document.getElementById("detail-close").addEventListener("click", closeDetailModal);
   document.getElementById("detail-modal").addEventListener("click", (ev) => {
-    if (ev.target.id === "detail-modal") document.getElementById("detail-modal").hidden = true;
+    if (ev.target.id === "detail-modal") closeDetailModal();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !document.getElementById("detail-modal").hidden) {
+      closeDetailModal();
+    }
   });
 }
 

@@ -244,6 +244,18 @@ td.status-badge span, .status-tag {
   vertical-align: middle;
 }
 
+/* The modal owns the only scrollbar on screen while it is open:
+ *  - body.modal-open stops the page scrolling behind the overlay;
+ *  - .modal-content is capped to the viewport minus the overlay padding and
+ *    lays its children out as a flex column, so the header, mini map and note
+ *    take their natural height and #detail-body gets exactly what is left;
+ *  - #detail-body is the single scroller (min-height:0 lets a flex item shrink
+ *    below its content, which is what makes overflow-y actually engage).
+ * Do NOT give #detail-body a viewport-relative max-height: it cannot know how
+ * much room the header and mini map above it already used, which is what made
+ * the old scrollbar think it had more space than it had. */
+body.modal-open { overflow: hidden; }
+
 .modal {
   position: fixed;
   inset: 0;
@@ -251,6 +263,8 @@ td.status-badge span, .status-tag {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px;
+  overflow: hidden;
   z-index: 1000;
 }
 .modal[hidden] {
@@ -261,11 +275,15 @@ td.status-badge span, .status-tag {
   border-radius: 10px;
   padding: 20px 22px;
   max-width: 860px;
-  width: 92%;
-  max-height: 88vh;
-  overflow: auto;
+  width: 100%;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
 }
+.modal-content > h3 { flex: 0 0 auto; margin: 2px 0 12px; padding-right: 28px; }
 .modal-content h4 { margin: 16px 0 6px; font-size: 13px; color: #475569; }
 .detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .detail-table th {
@@ -273,7 +291,7 @@ td.status-badge span, .status-tag {
   padding: 5px 8px 5px 0; vertical-align: top; border-bottom: 1px solid #e2e8f0;
 }
 .detail-table td { padding: 5px 0; border-bottom: 1px solid #e2e8f0; word-break: break-word; }
-#detail-body { max-height: 70vh; overflow-y: auto; }
+#detail-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .modal-close {
   position: absolute;
   top: 10px;
@@ -298,17 +316,30 @@ td.status-badge span, .status-tag {
   margin-left: 6px;
 }
 
-/* Mini map inside the detail popup */
+/* Detail-row labels that carry a plain-English explanation on hover
+ * (see static/glossary.js). Same dotted/help affordance as .cited. */
+abbr.gloss {
+  text-decoration: none;
+  border-bottom: 1px dotted #94a3b8;
+  cursor: help;
+}
+abbr.gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
+
+/* Mini map inside the detail popup. flex:0 0 auto keeps it at its own height
+ * (including after the user drags the resize handle) so only #detail-body
+ * absorbs the remaining space. */
 #detail-map {
-  height: 280px;
+  flex: 0 0 auto;
+  height: min(280px, 32vh);
   min-height: 160px;
+  max-height: 45vh;
   resize: vertical;
   overflow: hidden;
   border-radius: 8px;
   margin-bottom: 12px;
   border: 1px solid #e2e8f0;
 }
-#detail-map-note { margin: 0 0 10px; }
+#detail-map-note { flex: 0 0 auto; margin: 0 0 10px; }
 
 /* County outlines */
 .county-label {
