@@ -269,12 +269,14 @@ Raw layer attributes are kept in `attributes_json`, but any key starting with `O
 ### Map rendering (uncapped)
 
 - The map draws every feature that matches the filters, not just the first few hundred. Rows stream from `/api/features/geometry` in keyset-paged chunks of 2,000 and are drawn on a canvas renderer.
-- Drawing runs in 40 ms slices with a 40 ms pause between them, so a large render uses roughly half of one CPU core and the page stays responsive. A loading overlay shows progress with a Cancel button.
-- When that throttle engages (any render bigger than one slice) a notice appears on the map explaining that the render is throttled and may take a while, and a "Done" notice reports the final count and time.
+- Drawing runs in 40 ms slices with a 40 ms pause between them, so a large render uses roughly half of one CPU core and the page stays responsive.
+- Progress shows in a compact meter pinned to the map's top-right corner: a thin bar plus "Loading 12,340 / 110,000 features" and an x that cancels the render (it bumps the `mapRun` generation token, which the render loop checks after every slice and every chunk). The bar is indeterminate until the first chunk returns the total. Nothing overlays the map, so you can pan, zoom and click already-drawn polygons while the rest streams in; interacting never restarts the load. When the render finishes the meter shows the final count and fades out after ~1.5 s, and the hint above the map reads "Rendered on map (N features, T s)".
+- The map frames the selected county at most once per load, and never after the user has panned or zoomed, so a long render does not fight with the view you chose.
+- When the throttle engages (any render bigger than one slice) a small toast at the bottom of the map explains that drawing is throttled and may take a while, and a "Done" toast reports the final count and time. Toasts are dismissible and never block the map.
 
 ### County outlines and resizable maps
 
-- Both maps (the Browse Data map and the mini map in the row detail popup) draw all 67 county boundaries as dashed lines. The selected county is highlighted in blue. At state zoom each county is labelled; hovering shows the full name. Clicking a lot opens the same detail panel as clicking its table row (mini map, values, source attributes). Clicking empty ground inside a different county selects that county and loads it; a hover label names the county under the cursor.
+- Both maps (the Browse Data map and the mini map in the row detail popup) draw all 67 county boundaries as dashed lines. The selected county is highlighted in blue. At state zoom each county is labelled; hovering shows the full name. Clicking a lot opens the same detail panel as clicking its table row (mini map, values, source attributes). Outlines are display only - a hover label names the county under the cursor, but clicking empty ground does nothing; change counties with the County filter above the map.
 - Boundaries come from the U.S. Census Bureau TIGERweb `State_County` service (Counties layer, generalized to ~50 m) and are stored in `scripts/static/fl_counties.geojson`. Regenerate with `python scripts/fetch_county_boundaries.py` (rarely needed).
 - Drag the bottom-right corner of either map to change its height; the map re-lays itself out automatically. Fullscreen still works via the panel button.
 

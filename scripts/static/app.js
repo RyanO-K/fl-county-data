@@ -827,34 +827,15 @@ function countyAt(latlng) {
   return null;
 }
 
-function selectCounty(key) {
-  const sel = document.getElementById("f-county");
-  if (!sel || ![...sel.options].some((o) => o.value === key)) return false;
-  sel.value = key;
-  sel.dispatchEvent(new Event("change"));
-  if (sel.form) sel.form.requestSubmit();
-  return true;
-}
-
-function onMapClick(e) {
-  // Fires only for clicks that no feature consumed (feature clicks are stopped
-  // by the renderer). Clicking inside a county that is not the current one
-  // selects it; clicking inside the current county does nothing.
-  const f = countyAt(e.latlng);
-  if (f && f.properties.key !== state.county) selectCounty(f.properties.key);
-}
-
 function onMapMouseMove(e) {
   // Hover name for the county under the cursor (replaces per-polygon tooltips).
+  // Naming only - clicking empty ground never changes the county filter.
   const f = countyAt(e.latlng);
   const el = leafletMap.getContainer();
   let tip = el.querySelector(".county-hover");
   if (!tip) { tip = document.createElement("div"); tip.className = "county-hover"; el.appendChild(tip); }
   if (f) {
-    const sel = document.getElementById("f-county");
-    const loadable = sel && [...sel.options].some((o) => o.value === f.properties.key);
-    tip.textContent = f.properties.name + " County" +
-      (f.properties.key === state.county ? "" : loadable ? " (click to select)" : " (no data loaded yet)");
+    tip.textContent = f.properties.name + " County";
     tip.hidden = false;
   } else {
     tip.hidden = true;
@@ -900,8 +881,10 @@ function ensureMap() {
     attribution: "&copy; OpenStreetMap contributors | County lines: U.S. Census TIGERweb",
   }).addTo(leafletMap);
   leafletMap.on("zoomend", updateCountyLabelVisibility);
-  leafletMap.on("click", onMapClick);
   leafletMap.on("mousemove", onMapMouseMove);
+  // Any pan/zoom the user starts themselves cancels the one automatic fit for
+  // the current load, so a streaming render never yanks the view back.
+  leafletMap.on("movestart zoomstart", () => { if (!mapProgrammaticMove) mapUserMoved = true; });
   leafletMap.on("mouseout", () => { const t = leafletMap.getContainer().querySelector(".county-hover"); if (t) t.hidden = true; });
   watchMapResize(document.getElementById("map"), () => leafletMap);
   loadCountyBoundaries().then(() => refreshCountyOutlines(state.county || null));
@@ -912,7 +895,7 @@ function clearMap() {
   mapRun++;
   if (geoLayer && leafletMap) leafletMap.removeLayer(geoLayer);
   geoLayer = null;
-  if (leafletMap) { setMapLoading(false); }
+  if (leafletMap) { setMapProgress(false); }
   refreshCountyOutlines(null);
   mapLoadedKey = null;
   document.getElementById("map-legend").innerHTML = "";
@@ -931,48 +914,96 @@ const RENDER_REST_MS = 40;   // pause after each slice (=> ~50% duty cycle)
 let mapRun = 0;              // generation token; bumping it cancels a run
 let mapRenderer = null;
 let mapNoticeTimer = null;
+let mapMeterTimer = null;
+let mapUserMoved = false;      // did the user pan/zoom since this load started?
+let mapProgrammaticMove = 0;   // >0 while we move the map ourselves
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Move the map without it counting as a user pan/zoom. */
+function programmaticMapMove(fn) {
+  mapProgrammaticMove++;
+  try { fn(); } finally { setTimeout(() => { mapProgrammaticMove = Math.max(0, mapProgrammaticMove - 1); }, 0); }
+}
+
+/* Both map chrome elements are small cards pinned inside the map container:
+ * they never cover the map, and they swallow their own mouse/scroll events so
+ * clicking or scrolling on them does not pan or zoom the map underneath. */
 function mapOverlayEls() {
   const container = leafletMap.getContainer();
-  let loading = container.querySelector(".map-loading");
-  if (!loading) {
-    loading = document.createElement("div");
-    loading.className = "map-loading";
-    loading.hidden = true;
-    loading.innerHTML = '<div class="map-loading-box"><div class="spinner"></div>' +
-      '<div class="map-loading-text">Loading...</div>' +
-      '<div class="map-loading-bar"><div class="map-loading-fill"></div></div>' +
-      '<button type="button" class="btn small map-cancel">Cancel</button></div>';
-    loading.querySelector(".map-cancel").addEventListener("click", () => {
-      mapRun++;
-      setMapLoading(false);
-      showMapNotice("Render cancelled. Narrow the filters or apply again to restart.", 6000);
-      document.getElementById("map-hint").textContent = "Render cancelled.";
-    });
-    container.appendChild(loading);
+  let meter = container.querySelector(".map-meter");
+  if (!meter) {
+    meter = document.createElement("div");
+    meter.className = "map-meter";
+    meter.hidden = true;
+    meter.innerHTML =
+      '<div class="map-meter-head">' +
+      '<span class="map-meter-text">Loading features...</span>' +
+      '<button type="button" class="map-meter-cancel map-cancel" aria-label="Cancel loading" title="Cancel loading">&times;</button>' +
+      "</div>" +
+      '<div class="map-meter-bar"><div class="map-meter-fill"></div></div>';
+    meter.querySelector(".map-cancel").addEventListener("click", cancelMapRender);
+    L.DomEvent.disableClickPropagation(meter);
+    L.DomEvent.disableScrollPropagation(meter);
+    container.appendChild(meter);
   }
   let notice = container.querySelector(".map-notice");
   if (!notice) {
     notice = document.createElement("div");
     notice.className = "map-notice";
     notice.hidden = true;
+    L.DomEvent.disableClickPropagation(notice);
+    L.DomEvent.disableScrollPropagation(notice);
     container.appendChild(notice);
   }
-  return { loading, notice };
+  return { meter, notice };
 }
 
-function setMapLoading(on, text, fraction) {
+function cancelMapRender() {
+  mapRun++;                    // generation token: the running loop bails out
+  setMapProgress(false);
+  showMapNotice("Render cancelled. Narrow the filters or apply again to restart.", 6000);
+  document.getElementById("map-hint").textContent = "Render cancelled.";
+}
+
+/* Compact top-right progress meter. `total` null => indeterminate bar (we do
+ * not know the feature count until the first chunk comes back). */
+function setMapProgress(on, shown, total) {
   if (!leafletMap) return;
-  const { loading } = mapOverlayEls();
-  loading.hidden = !on;
-  if (on) {
-    loading.querySelector(".map-loading-text").textContent = text || "Loading...";
-    const fill = loading.querySelector(".map-loading-fill");
-    fill.style.width = fraction == null ? "0%" : `${Math.round(Math.min(1, fraction) * 100)}%`;
-    fill.parentElement.style.visibility = fraction == null ? "hidden" : "visible";
+  const { meter } = mapOverlayEls();
+  clearTimeout(mapMeterTimer);
+  meter.classList.remove("map-meter-done");
+  if (!on) { meter.hidden = true; return; }
+  meter.hidden = false;
+  const bar = meter.querySelector(".map-meter-bar");
+  const fill = meter.querySelector(".map-meter-fill");
+  const n = shown || 0;
+  if (total == null) {
+    meter.querySelector(".map-meter-text").textContent = `Loading ${n.toLocaleString()} features`;
+    bar.classList.add("indeterminate");
+    fill.style.width = "";
+  } else {
+    meter.querySelector(".map-meter-text").textContent =
+      `Loading ${n.toLocaleString()} / ${total.toLocaleString()} features`;
+    bar.classList.remove("indeterminate");
+    fill.style.width = `${Math.round(Math.min(1, total ? n / total : 0) * 100)}%`;
   }
+}
+
+/* Load finished: show the final count for a beat, then fade the meter out. */
+function finishMapProgress(shown) {
+  if (!leafletMap) return;
+  const { meter } = mapOverlayEls();
+  if (meter.hidden) return;
+  meter.querySelector(".map-meter-text").textContent = `Rendered ${(shown || 0).toLocaleString()} features`;
+  meter.querySelector(".map-meter-bar").classList.remove("indeterminate");
+  meter.querySelector(".map-meter-fill").style.width = "100%";
+  meter.classList.add("map-meter-done");
+  clearTimeout(mapMeterTimer);
+  mapMeterTimer = setTimeout(() => {
+    meter.hidden = true;
+    meter.classList.remove("map-meter-done");
+  }, 1500);
 }
 
 function showMapNotice(html, autoHideMs) {
@@ -1006,9 +1037,9 @@ async function loadMap() {
     ensureMap();
     await loadCountyBoundaries();
     clearMap();
-    setMapLoading(false);
+    setMapProgress(false);
     hideMapNotice();
-    hint.textContent = "Pick a county (or click one on the map) and click \"Apply filters\" - features render per county to keep it fast.";
+    hint.textContent = "Pick a county and dataset above, then click \"Apply filters\" - features render per county to keep it fast.";
     return;
   }
   hint.textContent = "Loading...";
@@ -1044,12 +1075,22 @@ async function loadMap() {
   }).addTo(map);
   if (countyLayer) countyLayer.bringToBack();
 
-  // Frame the county right away; features stream in on top.
-  const cb = countyBounds(state.county);
-  if (cb) map.fitBounds(cb, { padding: [10, 10] });
+  // Frame the county at most once per load - immediately, so features stream
+  // in on top of the right view. Later calls are no-ops, and once the user has
+  // panned or zoomed we never move the map again for this load.
+  mapUserMoved = false;
+  let fittedOnce = false;
+  const fitToData = () => {
+    if (fittedOnce || mapUserMoved) return;
+    const b = countyBounds(state.county);
+    if (!b) return;
+    fittedOnce = true;
+    programmaticMapMove(() => map.fitBounds(b, { padding: [10, 10] }));
+  };
+  fitToData();
 
   hideMapNotice();
-  setMapLoading(true, "Loading features...");
+  setMapProgress(true, 0, null);
   const t0 = performance.now();
   let after = 0, shown = 0, total = null, throttled = false, chunks = 0;
   try {
@@ -1073,16 +1114,15 @@ async function loadMap() {
           geoLayer.addData({ type: "Feature", geometry: geom, properties: r });
           shown++;
         }
+        setMapProgress(true, shown, total);
         if (i < rows.length || data.has_more) {
           // Budget exhausted before the chunk finished: the CPU cap is engaged.
           if (!throttled) {
             throttled = true;
             showMapNotice(`<b>Large render</b> - ${total != null ? total.toLocaleString() : "many"} features. ` +
               "Drawing is throttled to about half of one CPU core so the page stays responsive; this may take a while. " +
-              "You can keep panning and zooming, or cancel and narrow the filters.");
+              "You can keep panning and zooming, or cancel the render (x) and narrow the filters.", 12000);
           }
-          setMapLoading(true, `Rendering ${shown.toLocaleString()} of ${total != null ? total.toLocaleString() : "?"} features...`,
-            total ? shown / total : null);
           await sleep(RENDER_REST_MS);
           if (run !== mapRun) return;
         }
@@ -1092,11 +1132,13 @@ async function loadMap() {
       if (!data.has_more) break;
     }
     if (run !== mapRun) return;
+    fitToData();
     const secs = (performance.now() - t0) / 1000;
     hint.textContent = `Rendered on map (${shown.toLocaleString()} features` +
       (total != null && total !== shown ? ` of ${total.toLocaleString()} matching; the rest have no boundary geometry` : "") +
       `, ${secs.toFixed(1)}s).`;
     renderLegend(legendCodes);
+    finishMapProgress(shown);
     if (throttled) {
       showMapNotice(`Done: ${shown.toLocaleString()} features rendered in ${secs.toFixed(0)}s (throttled).`, 8000);
     }
@@ -1105,8 +1147,7 @@ async function loadMap() {
     mapLoadedKey = null;
     hint.textContent = "Failed to load map data: " + e.message;
     showMapNotice("Map load failed: " + esc(e.message), 10000);
-  } finally {
-    if (run === mapRun) setMapLoading(false);
+    setMapProgress(false);
   }
 }
 
