@@ -13,7 +13,7 @@ const state = {
   q: "",
   page: 1,
   per_page: 50,
-  view: "table",
+  view: "map",
   mainTab: "browse",
 };
 
@@ -1173,6 +1173,22 @@ function readFiltersFromForm() {
   state.page = 1;
 }
 
+/* Switch the Browse panel between the table and map views. Used by the
+ * Table/Map toggle and by init() to open on the default view. */
+function setView(view) {
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.view === view);
+  });
+  state.view = view;
+  document.getElementById("view-table").hidden = state.view !== "table";
+  document.getElementById("view-map").hidden = state.view !== "map";
+  if (state.view === "map") {
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 50);
+    // Render with the current filters unless the map already shows them.
+    if (mapLoadedKey !== JSON.stringify(currentFilterParams())) loadMap();
+  }
+}
+
 function initEvents() {
   document.getElementById("f-county").addEventListener("change", () => {
     refreshDatasetOptions();
@@ -1208,18 +1224,7 @@ function initEvents() {
   });
 
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-      tab.classList.add("active");
-      state.view = tab.dataset.view;
-      document.getElementById("view-table").hidden = state.view !== "table";
-      document.getElementById("view-map").hidden = state.view !== "map";
-      if (state.view === "map") {
-        if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 50);
-        // Render with the current filters unless the map already shows them.
-        if (mapLoadedKey !== JSON.stringify(currentFilterParams())) loadMap();
-      }
-    });
+    tab.addEventListener("click", () => setView(tab.dataset.view));
   });
 
   document.querySelectorAll(".main-tab").forEach((tab) => {
@@ -1247,6 +1252,9 @@ async function init() {
   await loadCombos();
   await loadFacets();
   await loadFeatures(false);
+  // Open on the default view (map) now that the filter state is ready, using
+  // the same path a click on the toggle takes so Leaflet sizes itself.
+  setView(state.view);
   await loadStatus();
 
   // Live updates: poll status every 20s, and silently refresh the current

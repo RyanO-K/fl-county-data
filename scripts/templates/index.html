@@ -91,11 +91,11 @@
     </form>
 
     <div class="view-toggle">
-      <button type="button" class="tab active" data-view="table">Table</button>
-      <button type="button" class="tab" data-view="map">Map</button>
+      <button type="button" class="tab" data-view="table">Table</button>
+      <button type="button" class="tab active" data-view="map">Map</button>
     </div>
 
-    <div id="view-table">
+    <div id="view-table" hidden>
       <div class="table-wrap">
         <table id="features-table">
           <thead>
@@ -133,7 +133,7 @@
       </div>
     </div>
 
-    <div id="view-map" hidden>
+    <div id="view-map">
       <p class="hint" id="map-hint">Select a county and dataset above and click "Apply filters" to render matching polygons (capped for performance).</p>
       <div id="map"></div>
       <p class="map-resize-hint">Drag the bottom-right corner of the map to resize it. Dashed lines are county boundaries (U.S. Census); click a county to select it.</p>
