@@ -21,6 +21,7 @@
     </div>
   </header>
   {% if demo %}
+  <script>window.DEMO_MODE = true;</script>
   <div class="demo-banner">
     <b>Public demo.</b> This site serves {{ demo.counties|length }} complete counties so it fits a free host; the full build covers all 67 Florida counties (10.5M valued parcels) and refreshes daily.
     Counties here: {{ demo.counties|map('replace', '_', ' ')|map('title')|join(', ') }}.

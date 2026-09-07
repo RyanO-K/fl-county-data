@@ -183,7 +183,12 @@ def phase2_load_county(item):
     try:
         have = conn.execute(
             "SELECT COUNT(*) FROM features WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()[0]
-        if n and have >= 0.98 * n:
+        # Layers with several polygons per parcel id (condos, Manatee) collapse on
+        # upsert, so also accept the row count of the last successful sync.
+        last = conn.execute(
+            "SELECT rows_fetched FROM sync_log WHERE county=? AND dataset_type='parcels' AND status='success' "
+            "ORDER BY id DESC LIMIT 1", (county,)).fetchone()
+        if n and max(have, (last[0] if last else 0)) >= 0.98 * n:
             etl.log(f"[SKIP] {county}/parcels: already loaded ({have:,} of {n:,} rows present)")
             result.update(status="already", rows=have)
             return result

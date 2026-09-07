@@ -495,7 +495,9 @@ async function showDetail(id) {
       `<h4>Source attributes</h4>` +
       (attrRows.length
         ? `<table class="detail-table">${attrHtml}</table>`
-        : `<p class="hint">No additional attributes.</p>`);
+        : `<p class="hint">${window.DEMO_MODE && data.dataset_type === "parcels"
+            ? "Raw source attributes are omitted for parcels in the public demo to fit the free host; the full build keeps them."
+            : "No additional attributes."}</p>`);
   } catch (e) {
     body.textContent = "Failed to load detail: " + e.message;
   }

@@ -1445,14 +1445,27 @@
   "volusia": {
     "parcels": {
       "url": "https://maps1.vcgov.org/arcgis/rest/services/CountywideZoning/MapServer/0",
-      "key_field": "PARID",
+      "key_field": "PID",
       "field_map": {
         "acreage": "CALCACRES",
         "land_use_code": "PC",
         "land_use_desc": "PC_DESC",
         "city": "CITYNAME"
       },
-      "notes": "'Parcels' layer (id 0) inside the Countywide Zoning service, published by Volusia County GIS. Also carries LANDACRES/LANDSQFT and taxable-value fields (STXBL/NSTXBL/COTXBL/CITXBL) but no separate land/building/total market value fields, so those were left out of field_map rather than guessed."
+      "notes": "Key is PID (12-digit parcel number, same format as the DOR roll); PARID/ALTKEY are internal ids. OWNER1/OWNER2/CAREOF and the MAIL* fields are the owner's mailing address and are excluded. 'Parcels' layer (id 0) inside the Countywide Zoning service, published by Volusia County GIS. Also carries LANDACRES/LANDSQFT and taxable-value fields (STXBL/NSTXBL/COTXBL/CITXBL) but no separate land/building/total market value fields, so those were left out of field_map rather than guessed.",
+      "exclude_fields": [
+        "CAREOF",
+        "MAILADDR1",
+        "MAILADDR2",
+        "MAILADDR3",
+        "MAILCITY",
+        "MAILCOUNTRY",
+        "MAILSTATE",
+        "MAILZIP",
+        "OWNER1",
+        "OWNER2",
+        "POSTALCODE"
+      ]
     },
     "zoning": {
       "url": "https://maps1.vcgov.org/arcgis/rest/services/CountywideZoning/MapServer/2",
