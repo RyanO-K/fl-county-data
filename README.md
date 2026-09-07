@@ -255,6 +255,7 @@ Layers whose `maxRecordCount` is under 1000 are fetched by object-id batches (`r
 ### Extra source config keys
 - `"where"`: optional ArcGIS SQL filter applied to every query for that layer (used when one service holds more than one county, e.g. the Baker/Nassau parcel layer).
 - `"type": "statewide_geometry"`: parcel boundaries pulled from the statewide DOR cadastral layer by OBJECTID for the parcels already in `parcel_values` (13 counties without a county-hosted parcel layer).
+- `"key_transform"`: named reordering applied to the normalized key before the DOR join (`swap_sec_rng` for Orange, whose PARCEL field is range-township-section while the state roll is section-township-range). `feature_key` keeps the county's spelling; only `feature_key_norm` is transformed.
 - `"exclude_fields"`: extra raw attribute keys to drop on ingest (owner/mailing fields are dropped automatically).
 
 ### Privacy: owner and mailing fields are not stored

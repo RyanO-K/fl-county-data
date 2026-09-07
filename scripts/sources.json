@@ -1065,7 +1065,7 @@
         "total_value": "TOTAL_MKT",
         "city": "SITUS_CITY"
       },
-      "notes": "Key is PARCEL (15-digit parcel number, same format as the DOR roll); OBJECTID is not stable across publishes. NAME1/NAME2/PROP_NAME are owner names and ADD1-4/CITY/STATE/ZIP/ZIP4/COUNTRY the mailing address, all excluded (situs fields SITUS/CITY_SITUS/ZIP_SITUS are kept). maxRecordCount is 200 and resultOffset paging slows to ~8 s/page past 80k rows, so this layer is fetched by OBJECTID batches. Orange County GIS public parcels layer, part of AGOL_Open_Data service ('Data made available in a public service by Orange County FL. Updated weekly.').",
+      "notes": "PARCEL is written range-township-section (RR-TT-SS-SSSS-BB-LLL) while the DOR roll uses section-township-range; key_transform swap_sec_rng reorders it for the value join (98% match). Key is PARCEL (15-digit parcel number, same format as the DOR roll); OBJECTID is not stable across publishes. NAME1/NAME2/PROP_NAME are owner names and ADD1-4/CITY/STATE/ZIP/ZIP4/COUNTRY the mailing address, all excluded (situs fields SITUS/CITY_SITUS/ZIP_SITUS are kept). maxRecordCount is 200 and resultOffset paging slows to ~8 s/page past 80k rows, so this layer is fetched by OBJECTID batches. Orange County GIS public parcels layer, part of AGOL_Open_Data service ('Data made available in a public service by Orange County FL. Updated weekly.').",
       "no_offset_pagination": true,
       "exclude_fields": [
         "NAME1",
@@ -1080,7 +1080,8 @@
         "ZIP",
         "ZIP4",
         "COUNTRY"
-      ]
+      ],
+      "key_transform": "swap_sec_rng"
     },
     "zoning": {
       "url": "https://ocgis4.ocfl.net/arcgis/rest/services/AGOL_Open_Data/MapServer/51",

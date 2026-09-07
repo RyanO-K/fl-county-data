@@ -90,6 +90,23 @@ def normalize_key(pid):
     return "".join(ch for ch in str(pid).upper() if ch.isalnum())
 
 
+# Per-source key transforms (sources.json "key_transform"), applied before
+# normalization so feature_key_norm lines up with the DOR roll's parcel_key
+# while feature_key keeps the county's own spelling for display.
+#   swap_sec_rng: county writes RR-TT-SS-..., DOR writes SS-TT-RR-... (Orange)
+KEY_TRANSFORMS = {
+    "swap_sec_rng": lambda k: (k[4:6] + k[2:4] + k[0:2] + k[6:]) if len(k) >= 6 else k,
+}
+
+
+def join_key(key, transform=None):
+    """feature_key_norm for a county feature key."""
+    k = normalize_key(key)
+    if transform:
+        k = KEY_TRANSFORMS[transform](k)
+    return k
+
+
 def get_conn():
     DB_PATH.parent.mkdir(exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=60)
@@ -428,7 +445,7 @@ def _public_props(props, exclude_fields=()):
             if k.upper() not in ex and not is_private_field(k)}
 
 
-def _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields=()):
+def _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields=(), key_transform=None):
     now = datetime.now(timezone.utc).isoformat()
     rows = []
     for feat in feats:
@@ -444,7 +461,7 @@ def _write_features(conn, county, dataset_type, key_field, field_map, feats, exc
             acreage = geodesic_acres(geom)
             acreage_source = "geometry" if acreage is not None else None
         rows.append((
-            county, dataset_type, key, normalize_key(key),
+            county, dataset_type, key, join_key(key, key_transform),
             acreage, acreage_source, _clean_city(props.get(field_map.get("city"))),
             props.get(field_map.get("land_use_code")),
             props.get(field_map.get("land_use_desc")),
@@ -592,7 +609,8 @@ def sync_source(conn, county, dataset_type, source):
                 oid = (feat.get("properties") or {}).get(id_field)
                 if oid is not None:
                     seen_ids.add(oid)
-            return _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields)
+            return _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields,
+                                   source.get("key_transform"))
 
         use_id_batches = bool(source.get("no_offset_pagination"))
         if not use_id_batches and page_size < 1000:
