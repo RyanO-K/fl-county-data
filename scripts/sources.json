@@ -2,11 +2,11 @@
   "alachua": {
     "parcels": {
       "url": "https://services.arcgis.com/cNo3jpluyt69V8Ek/arcgis/rest/services/PublicParcel/FeatureServer/0",
-      "key_field": "Prop_ID",
+      "key_field": "Name",
       "field_map": {
         "city": "INC_MUNI"
       },
-      "notes": "Alachua County Property Appraiser 'Public Parcels' hosted layer (ArcGIS Hub item at data2018-11-15t152007183z-acpa.opendata.arcgis.com). Geometry + owner/address/Prop_ID only - no acreage, land use, zoning, or value fields are exposed on this public layer."
+      "notes": "Key is the 'Name' field (the parcel number, e.g. 03531-033-000); Prop_ID is an internal id that never matches the DOR roll. Owner_Mail_* fields are dropped by the privacy filter. Alachua County Property Appraiser 'Public Parcels' hosted layer (ArcGIS Hub item at data2018-11-15t152007183z-acpa.opendata.arcgis.com). Geometry + owner/address/Prop_ID only - no acreage, land use, zoning, or value fields are exposed on this public layer."
     },
     "zoning": {
       "url": "https://services1.arcgis.com/MiBZ4u97DWldovjI/arcgis/rest/services/ZoningCountyWide/FeatureServer/0",

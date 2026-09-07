@@ -240,6 +240,10 @@ geometry-derived parcel acreage to `dor` where land square footage exists.
 
 `etl.PRIORITY_COUNTIES` lists the Tampa Bay and Orlando metro counties (Hillsborough, Pinellas, Pasco, Hernando, Orange, Seminole, Osceola, Lake, then the ring: Polk, Manatee, Sarasota, Citrus, Sumter, Volusia, Brevard). `load_all.py phase2` loads them first, in that order, before the smallest-first sweep, and `make_demo_db.py --budget-mb N --require-parcels` fills the demo budget with them first (only counties whose parcel boundaries are at least 90% loaded are eligible).
 
+### Value join performance
+
+`features.feature_key_norm` stores the normalized parcel id (same function as `parcel_values.parcel_key`) with an index, so the DOR value join is an index lookup (Washington, 43k parcels: 15 s). The join query carries `INDEXED BY idx_pv_key` on purpose: SQLite's UPDATE..FROM planner otherwise takes the parcel_values primary key and scans every DOR row per parcel (15 min for 30k parcels, days for a metro county). Phase 2 logs `[WARN]` when under half of a county's parcels match, which almost always means the layer's `key_field` is not the parcel number (Alachua's is `Name`; `Prop_ID` is internal).
+
 ### Run lock
 
 `etl.py` (the scheduled daily refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.

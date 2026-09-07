@@ -201,6 +201,14 @@ def run_phase2():
         try:
             etl.backfill_acreage(conn, county)
             dor_values.apply_values_to_features(conn, county)
+            have, valued = conn.execute(
+                "SELECT COUNT(*), SUM(total_value IS NOT NULL) FROM features "
+                "WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()
+            if have and (valued or 0) < 0.5 * have:
+                # Almost always a wrong key_field (e.g. an internal id instead of the
+                # parcel number): the boundaries load fine but nothing joins.
+                etl.log(f"[WARN] {county}/parcels: only {valued or 0:,} of {have:,} parcels matched DOR values; "
+                        f"check key_field in sources.json")
         except Exception as exc:  # noqa: BLE001
             etl.log(f"[FAIL] {county}: post-load backfill/apply_values raised {exc}")
 

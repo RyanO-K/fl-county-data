@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from etl import MAX_RETRIES, TIMEOUT, get_conn, log
+from etl import MAX_RETRIES, TIMEOUT, get_conn, log, normalize_key  # noqa: F401  (one key normalizer for both tables)
 
 LAYER_URL = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
              "Florida_Statewide_Cadastral/FeatureServer/0")
@@ -134,14 +134,6 @@ def ensure_schema(conn):
         if name not in have:
             conn.execute(f"ALTER TABLE features ADD COLUMN {name} {typ}")
     conn.commit()
-
-
-def normalize_key(pid):
-    """Parcel ids differ cosmetically between county layers and the DOR roll
-    (spaces, dashes, dots). Compare on a stripped, upper-cased form."""
-    if pid is None:
-        return ""
-    return "".join(ch for ch in str(pid).upper() if ch.isalnum())
 
 
 def _int(v):
@@ -323,7 +315,10 @@ def sync_statewide_values(conn):
 
 def apply_values_to_features(conn, county=None):
     """Attach DOR values/sales to county parcel features, matched on the
-    normalized parcel id. County-published land/total values and acreage win
+    stored normalized parcel id (features.feature_key_norm = pv.parcel_key).
+    INDEXED BY is deliberate: without it SQLite 3.53's UPDATE..FROM planner
+    picks the parcel_values primary key (county only) and scans every DOR row
+    of the county per feature, which made a 30k-parcel join take 15 minutes. County-published land/total values and acreage win
     when the county layer provides them; DOR fills the rest (DOR land square
     footage beats geometry-derived acreage, which is the last resort)."""
     ensure_schema(conn)
@@ -354,10 +349,10 @@ def apply_values_to_features(conn, county=None):
                     THEN COALESCE(features.acreage_source, 'county')
                 WHEN pv.land_sqft > 0 THEN 'dor'
                 ELSE features.acreage_source END
-        FROM parcel_values AS pv
+        FROM parcel_values AS pv INDEXED BY idx_pv_key
         WHERE features.dataset_type = 'parcels'
           AND pv.county = features.county
-          AND pv.parcel_key = upper(replace(replace(replace(replace(features.feature_key, '-', ''), ' ', ''), '.', ''), '/', ''))
+          AND pv.parcel_key = features.feature_key_norm
           {where_county}
         """, params)
     conn.commit()

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS features (
     county TEXT NOT NULL,
     dataset_type TEXT NOT NULL,
     feature_key TEXT NOT NULL,
+    feature_key_norm TEXT,
     acreage REAL,
     acreage_source TEXT,
     city TEXT,
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS features (
     last_synced_at TEXT NOT NULL,
     UNIQUE(county, dataset_type, feature_key)
 );
+CREATE INDEX IF NOT EXISTS idx_features_norm ON features(county, dataset_type, feature_key_norm);
 
 CREATE TABLE IF NOT EXISTS sync_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +79,16 @@ def log(msg):
         f.write(line + "\n")
 
 
+def normalize_key(pid):
+    """Parcel ids differ cosmetically between county layers and the DOR roll
+    (spaces, dashes, dots). Compare on a stripped, upper-cased form. Stored
+    as features.feature_key_norm and parcel_values.parcel_key so the value
+    join is an index lookup."""
+    if pid is None:
+        return ""
+    return "".join(ch for ch in str(pid).upper() if ch.isalnum())
+
+
 def get_conn():
     DB_PATH.parent.mkdir(exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=60)
@@ -84,11 +96,18 @@ def get_conn():
     # every commit briefly locks readers out ("database is locked" 500s).
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.executescript(SCHEMA)
+    conn.create_function("norm_key", 1, normalize_key, deterministic=True)
     have = {r[1] for r in conn.execute("PRAGMA table_info(features)")}
-    for col in ("acreage_source", "city"):
-        if col not in have:
-            conn.execute(f"ALTER TABLE features ADD COLUMN {col} TEXT")
+    if have:  # existing database: add columns before the schema's CREATE INDEX runs
+        for col in ("acreage_source", "city", "feature_key_norm"):
+            if col not in have:
+                conn.execute(f"ALTER TABLE features ADD COLUMN {col} TEXT")
+    conn.executescript(SCHEMA)
+    if conn.execute("SELECT 1 FROM features WHERE feature_key_norm IS NULL LIMIT 1").fetchone():
+        t0 = time.time()
+        n = conn.execute("UPDATE features SET feature_key_norm = norm_key(feature_key) "
+                         "WHERE feature_key_norm IS NULL").rowcount
+        log(f"  populated feature_key_norm on {n:,} rows in {time.time()-t0:.0f}s")
     conn.commit()
     return conn
 
@@ -425,7 +444,7 @@ def _write_features(conn, county, dataset_type, key_field, field_map, feats, exc
             acreage = geodesic_acres(geom)
             acreage_source = "geometry" if acreage is not None else None
         rows.append((
-            county, dataset_type, key,
+            county, dataset_type, key, normalize_key(key),
             acreage, acreage_source, _clean_city(props.get(field_map.get("city"))),
             props.get(field_map.get("land_use_code")),
             props.get(field_map.get("land_use_desc")),
@@ -440,12 +459,13 @@ def _write_features(conn, county, dataset_type, key_field, field_map, feats, exc
         ))
     conn.executemany(
         """
-        INSERT INTO features (county, dataset_type, feature_key, acreage, acreage_source, city,
+        INSERT INTO features (county, dataset_type, feature_key, feature_key_norm, acreage, acreage_source, city,
             land_use_code, land_use_desc, zoning_code, zoning_desc,
             land_value, building_value, total_value, geometry_geojson,
             attributes_json, last_synced_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(county, dataset_type, feature_key) DO UPDATE SET
+            feature_key_norm=excluded.feature_key_norm,
             acreage=excluded.acreage,
             acreage_source=excluded.acreage_source,
             city=COALESCE(excluded.city, features.city),

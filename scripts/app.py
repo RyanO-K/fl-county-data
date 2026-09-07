@@ -453,8 +453,7 @@ def api_value_detail(county, parcel_id):
     if geom is None:
         geom = conn.execute(
             "SELECT id, geometry_geojson FROM features "
-            "WHERE county = ? AND dataset_type = 'parcels' AND "
-            "upper(replace(replace(replace(replace(feature_key,'-',''),' ',''),'.',''),'/','')) = ? LIMIT 1",
+            "WHERE county = ? AND dataset_type = 'parcels' AND feature_key_norm = ? LIMIT 1",
             (county, row["parcel_key"]),
         ).fetchone()
     out["feature_id"] = geom["id"] if geom else None
