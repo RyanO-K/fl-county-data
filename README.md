@@ -244,6 +244,10 @@ geometry-derived parcel acreage to `dor` where land square footage exists.
 
 `features.feature_key_norm` stores the normalized parcel id (same function as `parcel_values.parcel_key`) with an index, so the DOR value join is an index lookup (Washington, 43k parcels: 15 s). The join query carries `INDEXED BY idx_pv_key` on purpose: SQLite's UPDATE..FROM planner otherwise takes the parcel_values primary key and scans every DOR row per parcel (15 min for 30k parcels, days for a metro county). Phase 2 logs `[WARN]` when under half of a county's parcels match, which almost always means the layer's `key_field` is not the parcel number (Alachua's is `Name`; `Prop_ID` is internal).
 
+### Fetch strategy for big layers
+
+Layers whose `maxRecordCount` is under 1000 are fetched by object-id batches (`returnIdsOnly`, then `OBJECTID IN (...)`) instead of `resultOffset` paging: offset paging on those servers slows down with depth (Orange County: 1.5 s per 200-row page at the start, 8 s past 80k rows), while id batches cost the same at any depth. Batches run four at a time (`etl.FETCH_WORKERS`) for both county layers and the statewide-geometry fallback; results are written in order. `"no_offset_pagination": true` forces id batches for a source.
+
 ### Run lock
 
 `etl.py` (the scheduled daily refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.

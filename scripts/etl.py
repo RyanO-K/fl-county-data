@@ -16,6 +16,7 @@ import math
 import sqlite3
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -484,6 +485,22 @@ def _write_features(conn, county, dataset_type, key_field, field_map, feats, exc
     conn.commit()
     return len(rows)
 
+# Object-id batches are independent requests, so a few can be in flight at
+# once. Results are yielded in submission order so writes stay deterministic.
+# Four workers keeps us a polite client of public county servers.
+FETCH_WORKERS = 4
+
+
+def fetch_batches_parallel(batches, fetch_fn, workers=FETCH_WORKERS):
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        window = []
+        for batch in batches:
+            window.append(pool.submit(fetch_fn, batch))
+            if len(window) >= workers * 2:
+                yield window.pop(0).result()
+        for fut in window:
+            yield fut.result()
+
 
 def sync_statewide_geometry(conn, county, dataset_type, source):
     """Parcel boundaries for counties with no county-hosted parcel layer.
@@ -518,11 +535,11 @@ def sync_statewide_geometry(conn, county, dataset_type, source):
                 mid = len(batch) // 2
                 return fetch_bisect(batch[:mid]) + fetch_bisect(batch[mid:])
 
-        for n, i in enumerate(range(0, len(ids), batch_size)):
-            total += _write_features(conn, county, dataset_type, key_field, field_map,
-                                     fetch_bisect(ids[i:i + batch_size]), exclude_fields)
-            if n % 10 == 9 or i + batch_size >= len(ids):
-                log(f"  {county}/{dataset_type}: fetched {total:,}/{len(ids):,} rows so far (statewide batch)")
+        batches = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
+        for n, feats in enumerate(fetch_batches_parallel(batches, fetch_bisect)):
+            total += _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields)
+            if n % 10 == 9 or n + 1 == len(batches):
+                log(f"  {county}/{dataset_type}: fetched {total:,}/{len(ids):,} rows so far (statewide batch, {FETCH_WORKERS} workers)")
         if skipped:
             log(f"  {county}/{dataset_type}: WARNING skipped {len(skipped)} features: {skipped[:20]}")
         conn.execute(
@@ -578,6 +595,19 @@ def sync_source(conn, county, dataset_type, source):
             return _write_features(conn, county, dataset_type, key_field, field_map, feats, exclude_fields)
 
         use_id_batches = bool(source.get("no_offset_pagination"))
+        if not use_id_batches and page_size < 1000:
+            # resultOffset paging on small-page servers slows down with depth
+            # (Orange: 1.5 s/page at offset 0, 8 s/page past 80k rows). Object-id
+            # batches cost the same at any depth, so prefer them whenever the
+            # server hands out ids; keep offset paging as the fallback.
+            try:
+                probe_field, probe_ids = fetch_object_ids(query_url, verify, where)
+                if probe_ids:
+                    use_id_batches = True
+                    log(f"  {county}/{dataset_type}: page_size {page_size} < 1000, using object-id batches "
+                        f"({len(probe_ids):,} ids)")
+            except Exception as exc:  # noqa: BLE001
+                log(f"  {county}/{dataset_type}: returnIdsOnly failed ({exc}); using offset paging")
         if not use_id_batches:
             offset = 0
             try:
@@ -617,10 +647,11 @@ def sync_source(conn, county, dataset_type, source):
                     mid = len(batch) // 2
                     return fetch_ids_bisect(batch[:mid]) + fetch_ids_bisect(batch[mid:])
 
-            for i in range(0, len(remaining), page_size):
-                batch = remaining[i:i + page_size]
-                total += write(fetch_ids_bisect(batch))
-                log(f"  {county}/{dataset_type}: fetched {total}/{len(ids)} rows so far (id batch)")
+            batches = [remaining[i:i + page_size] for i in range(0, len(remaining), page_size)]
+            for n, feats in enumerate(fetch_batches_parallel(batches, fetch_ids_bisect)):
+                total += write(feats)
+                if n % 10 == 9 or n + 1 == len(batches):
+                    log(f"  {county}/{dataset_type}: fetched {total:,}/{len(ids):,} rows so far (id batch, {FETCH_WORKERS} workers)")
             if skipped:
                 log(f"  {county}/{dataset_type}: WARNING skipped {len(skipped)} features the server could not return: {skipped[:20]}")
 
