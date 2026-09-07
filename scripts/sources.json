@@ -584,8 +584,16 @@
   },
   "hillsborough": {
     "parcels": {
-      "type": "manual",
-      "note": "No public REST/API layer found. Bulk parcel shapefile + attribute spreadsheet published at https://downloads.hcpafl.org/ (updated on a rolling basis). Requires periodic manual (or scraped) selection of the current file - see README 'Hillsborough parcels' section before automating."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No public county REST parcel layer (previous finding: No public REST/API layer found. Bulk parcel shapefile + attribute spreadsheet published at https://downloads.hcpafl.org/ (updated on a rolling basis). Requires ...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values, same as the other statewide_geometry counties.",
+      "type": "statewide_geometry"
     },
     "zoning": {
       "url": "https://maps.hillsboroughcounty.org/arcgis/rest/services/DSD_Viewer_Services/DSD_Viewer_Zoning_Regulatory/MapServer/0",
@@ -1280,8 +1288,16 @@
   },
   "seminole": {
     "parcels": {
-      "type": "manual",
-      "note": "No public ArcGIS REST endpoint found after several probes (gis.seminolecountyfl.gov and egis.seminolecountyfl.gov do not resolve; no county ArcGIS Hub/opendata.arcgis.com site with a hosted parcels service was located). Seminole County publishes parcel data only as downloadable Esri file-geodatabase/shapefile bundles via https://www.seminolecountyfl.gov/departments-services/information-technology/gis-geographic-information-systems/gis-data-shapefiles (includes Parcels + ParcelTable1). The Seminole County Property Appraiser's interactive map at https://map.scpafl.org/ (Public Appraisal Map v5.4.1) is a parcel viewer with no discoverable public API."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No public county REST parcel layer (previous finding: No public ArcGIS REST endpoint found after several probes (gis.seminolecountyfl.gov and egis.seminolecountyfl.gov do not resolve; no county ArcGIS Hub/opendata....). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values, same as the other statewide_geometry counties.",
+      "type": "statewide_geometry"
     },
     "zoning": {
       "type": "manual",
