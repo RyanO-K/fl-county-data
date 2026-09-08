@@ -204,8 +204,9 @@ def phase2_load_county(item):
         try:
             etl.backfill_acreage(conn, county)
             dor_values.apply_values_to_features(conn, county)
+            # just_value comes only from the DOR join (total_value may be county-supplied)
             have, valued = conn.execute(
-                "SELECT COUNT(*), SUM(total_value IS NOT NULL) FROM features "
+                "SELECT COUNT(*), SUM(just_value IS NOT NULL) FROM features "
                 "WHERE county=? AND dataset_type='parcels'", (county,)).fetchone()
             if have and (valued or 0) < 0.5 * have:
                 # Almost always a wrong key_field (e.g. an internal id instead of the
@@ -258,6 +259,12 @@ def main():
     if phase not in ("phase1", "phase2"):
         print("usage: load_all.py [phase1|phase2]")
         sys.exit(1)
+    # Keep the machine from sleeping while the bulk load runs (display may still
+    # turn off): the 2026-09-07 run lost 4 hours to a system sleep.
+    try:
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+    except Exception:  # noqa: BLE001
+        pass
     other = etl.acquire_run_lock(f"load_all {phase}")
     if other:
         etl.log(f"[SKIP] load_all {phase}: '{other.get('name')}' (pid {other.get('pid')}, "

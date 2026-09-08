@@ -114,7 +114,26 @@ def normalize_key(pid):
 #   swap_sec_rng: county writes RR-TT-SS-..., DOR writes SS-TT-RR-... (Orange)
 KEY_TRANSFORMS = {
     "swap_sec_rng": lambda k: (k[4:6] + k[2:4] + k[0:2] + k[6:]) if len(k) >= 6 else k,
+    "append_R": lambda k: k + "R",          # Duval: DOR ids are the 10-digit RE number + 'R'
 }
+
+# The other direction (sources.json "dor_key_transform" on a parcels source):
+# how parcel_values.parcel_key is derived from the DOR parcel id for that
+# county, when the county's own key is a suffix of the state's.
+#   last14: Monroe - the DOR id prefixes the 14-digit RE number with a 6-digit code
+DOR_KEY_TRANSFORMS = {
+    "last14": lambda k: k[-14:],
+}
+
+
+def dor_key_transforms():
+    """county -> transform name, from sources.json (parcels.dor_key_transform)."""
+    try:
+        src = json.loads(SOURCES_PATH.read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+    return {c: d["parcels"]["dor_key_transform"] for c, d in src.items()
+            if d.get("parcels", {}).get("dor_key_transform")}
 
 
 def join_key(key, transform=None):
@@ -155,9 +174,9 @@ def _num(v):
         return None
 
 
-def _query(url, params, verify=True):
+def _query(url, params, verify=True, retries=MAX_RETRIES):
     last_exc = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, retries + 1):
         try:
             resp = requests.post(url, data=params, timeout=TIMEOUT, verify=verify)
             resp.raise_for_status()
@@ -170,7 +189,7 @@ def _query(url, params, verify=True):
             return data
         except Exception as exc:  # noqa: BLE001 - retry any transient failure
             last_exc = exc
-            if attempt < MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(2 * attempt)
     raise last_exc
 
@@ -267,7 +286,7 @@ def fetch_object_ids(query_url, verify=True, where="1=1"):
     return id_field, ids
 
 
-def fetch_batch_by_ids(query_url, id_field, ids, fmt="geojson", verify=True):
+def fetch_batch_by_ids(query_url, id_field, ids, fmt="geojson", verify=True, retries=MAX_RETRIES):
     id_list = ",".join(str(i) for i in ids)
     params = {
         "where": f"{id_field} IN ({id_list})",
@@ -276,7 +295,7 @@ def fetch_batch_by_ids(query_url, id_field, ids, fmt="geojson", verify=True):
         "outSR": 4326,
         "returnGeometry": "true",
     }
-    return _normalize_features(_query(query_url, params, verify), fmt)
+    return _normalize_features(_query(query_url, params, verify, retries), fmt)
 
 
 def fetch_sample(source, n=3):
@@ -594,7 +613,7 @@ def sync_statewide_geometry(conn, county, dataset_type, source):
 
         def fetch_bisect(batch):
             try:
-                return fetch_batch_by_ids(query_url, "OBJECTID", batch, fmt, True)
+                return fetch_batch_by_ids(query_url, "OBJECTID", batch, fmt, True, retries=2)
             except Exception as exc:  # noqa: BLE001
                 if len(batch) == 1:
                     skipped.append(batch[0])
@@ -707,7 +726,7 @@ def sync_source(conn, county, dataset_type, source):
                 # contains one feature they cannot serialize. Split the batch
                 # until the bad ids are isolated, then skip just those.
                 try:
-                    return fetch_batch_by_ids(query_url, id_field, batch, fmt, verify)
+                    return fetch_batch_by_ids(query_url, id_field, batch, fmt, verify, retries=2)
                 except Exception as exc:  # noqa: BLE001
                     if len(batch) == 1:
                         skipped.append(batch[0])

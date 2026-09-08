@@ -23,6 +23,21 @@ from datetime import datetime, timezone
 import requests
 
 from etl import MAX_RETRIES, TIMEOUT, get_conn, log, normalize_key  # noqa: F401  (one key normalizer for both tables)
+import etl
+
+_DOR_KEY_TRANSFORMS = None
+
+
+def dor_key(county, pid):
+    """parcel_values.parcel_key: the normalized DOR id, optionally reduced by
+    the county's dor_key_transform (sources.json) when the county layer's own
+    key is only a suffix of the state's (Monroe: last 14 digits)."""
+    global _DOR_KEY_TRANSFORMS
+    if _DOR_KEY_TRANSFORMS is None:
+        _DOR_KEY_TRANSFORMS = etl.dor_key_transforms()
+    k = normalize_key(pid)
+    t = _DOR_KEY_TRANSFORMS.get(county)
+    return etl.DOR_KEY_TRANSFORMS[t](k) if t else k
 
 LAYER_URL = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
              "Florida_Statewide_Cadastral/FeatureServer/0")
@@ -175,7 +190,7 @@ def row_from_attrs(a, now):
     if county is None or not pid:
         return None
     return (
-        county, co_no, pid, normalize_key(pid), _int(a.get("ASMNT_YR")),
+        county, co_no, pid, dor_key(county, pid), _int(a.get("ASMNT_YR")),
         _text(a.get("DOR_UC")), _num(a.get("JV")), _num(a.get("AV_NSD")),
         _num(a.get("TV_NSD")), _num(a.get("LND_VAL")), _num(a.get("LND_SQFOOT")),
         _int(a.get("NO_BULDNG")), _int(a.get("ACT_YR_BLT")) or None, _num(a.get("TOT_LVG_AR")),

@@ -42,7 +42,7 @@
   "bay": {
     "parcels": {
       "url": "https://gis.baycountyfl.gov/arcgis/rest/services/Basic_Layers/MapServer/3",
-      "key_field": "RE_LABEL",
+      "key_field": "A1RENUM",
       "field_map": {
         "acreage": "DTAXACRES",
         "land_use_code": "DORAPPCODE",
@@ -52,7 +52,25 @@
         "building_value": "VAPBLDG",
         "total_value": "VASJUST"
       },
-      "notes": "Bay County GIS 'Basic_Layers' Parcels layer - combines parcel geometry with Property Appraiser CAMA attributes (values, DOR use code) and a zoning code field. Public REST, no auth."
+      "notes": "Key is A1RENUM (11-digit RE number, same as the DOR roll); RE_LABEL is a short display form. Owner name, mailing address and sale grantor/grantee names are excluded. Bay County GIS 'Basic_Layers' Parcels layer - combines parcel geometry with Property Appraiser CAMA attributes (values, DOR use code) and a zoning code field. Public REST, no auth.",
+      "exclude_fields": [
+        "A2OWNAME",
+        "A3MAILADDR",
+        "A4MAILADDR",
+        "A5MAILADDR",
+        "A6MAILCITY",
+        "A7MAILST",
+        "A8MAILZIP",
+        "A9MAILCTRY",
+        "CREATOR",
+        "LAST_EDITOR",
+        "SALE1GRNTR",
+        "SALE1GRTEE",
+        "SALE2GRNTR",
+        "SALE2GRTEE",
+        "SALE3GRNTR",
+        "SALE3GRTEE"
+      ]
     },
     "zoning": {
       "url": "https://gis.baycountyfl.gov/arcgis/rest/services/Land_Use_Planning/MapServer/1",
@@ -92,7 +110,7 @@
   "brevard": {
     "parcels": {
       "url": "https://gis.brevardfl.gov/gissrv/rest/services/Base_Map/Parcel_New_WKID2881/MapServer/5",
-      "key_field": "TaxAcct",
+      "key_field": "PARCEL_ID",
       "field_map": {
         "acreage": "ACRES",
         "land_use_code": "USE_CODE",
@@ -101,7 +119,7 @@
         "building_value": "BLDG_VALUE",
         "city": "CITY"
       },
-      "notes": "Brevard County GIS 'Parcel Property' layer (layer 5 of the county's Parcel_New basemap service), combines Property Appraiser attribute data with parcel geometry. No combined total_value field published (sum LAND_VALUE + BLDG_VALUE as an approximation). The Property Appraiser's own bcpao.us ArcGIS REST endpoint is Cloudflare-protected and not fetchable without a browser."
+      "notes": "Key is PARCEL_ID (e.g. '21 3529-02-*-11', same form as the DOR roll once spaces/dashes/* are stripped); TaxAcct is an account number. Brevard County GIS 'Parcel Property' layer (layer 5 of the county's Parcel_New basemap service), combines Property Appraiser attribute data with parcel geometry. No combined total_value field published (sum LAND_VALUE + BLDG_VALUE as an approximation). The Property Appraiser's own bcpao.us ArcGIS REST endpoint is Cloudflare-protected and not fetchable without a browser."
     },
     "zoning": {
       "url": "https://gis.brevardfl.gov/gissrv/rest/services/Planning_Development/Zoning_WKID2881/MapServer/0",
@@ -219,12 +237,12 @@
   "clay": {
     "parcels": {
       "url": "https://maps.claycountygov.com:6443/arcgis/rest/services/Parcel/MapServer/0",
-      "key_field": "PIN",
+      "key_field": "ParcelDisp",
       "field_map": {
         "land_use_desc": "Usedesc",
         "city": "City"
       },
-      "notes": "Clay County GIS 'Parcel Data' layer. Thin attribute set (address/owner/legal/use description only) - no acreage or value fields exposed on this public layer. Property Appraiser's own certified data (ccpao.com/certified-data/) is shapefile-download only.",
+      "notes": "Key is ParcelDisp (SS-TT-RR-NNNNNN-NNN-NN, matches the DOR roll); PIN is the short form without section/township/range. Clay County GIS 'Parcel Data' layer. Thin attribute set (address/owner/legal/use description only) - no acreage or value fields exposed on this public layer. Property Appraiser's own certified data (ccpao.com/certified-data/) is shapefile-download only.",
       "format": "json"
     },
     "zoning": {
@@ -316,7 +334,7 @@
   "duval": {
     "parcels": {
       "url": "https://maps.coj.net/coj/rest/services/CityBiz/Parcels/MapServer/0",
-      "key_field": "OBJECTID",
+      "key_field": "RE_NOSPACE",
       "field_map": {
         "acreage": "ACRES",
         "land_use_code": "PUSE",
@@ -326,13 +344,25 @@
         "total_value": "CAMA_VAL",
         "city": "ADDRCITY"
       },
-      "notes": "City of Jacksonville / Duval County parcels layer - combines parcel, zoning (ZON_LABEL), land use (PUSE) and valuation in one layer. No dedicated zoning geometry layer is publicly exposed."
+      "notes": "Key is RE_NOSPACE (10-digit RE number); the DOR roll writes it with a trailing 'R' (key_transform append_R). OBJECTID was the old key and never joined. Owner name (LNAMEOWNER/LNAME2/LONGNAME) and mailing fields excluded. City of Jacksonville / Duval County parcels layer - combines parcel, zoning (ZON_LABEL), land use (PUSE) and valuation in one layer. No dedicated zoning geometry layer is publicly exposed.",
+      "key_transform": "append_R",
+      "exclude_fields": [
+        "LNAME2",
+        "LNAMEOWNER",
+        "LONGNAME",
+        "MAILADDR1",
+        "MAILADDR2",
+        "MAILADDR3",
+        "MAILCITY",
+        "MAILSTATE",
+        "MAILZIP"
+      ]
     }
   },
   "escambia": {
     "parcels": {
       "url": "https://gismaps.myescambia.com/arcgis/rest/services/Individual_Layers/parcels/MapServer/0",
-      "key_field": "CONTROLNO",
+      "key_field": "REFERENCE",
       "field_map": {
         "acreage": "LANDSIZE",
         "land_use_code": "DORCD",
@@ -341,7 +371,16 @@
         "total_value": "CURRMKT",
         "city": "CITY"
       },
-      "notes": "Escambia County GIS parcels layer - 'Escambia County Parcels - Updated Monthly', copyright Escambia County Property Appraiser. Public REST, no auth."
+      "notes": "Key is REFERENCE (16-char parcel reference, same as the DOR roll); CONTROLNO is an internal account. Owner and mailing fields excluded. Escambia County GIS parcels layer - 'Escambia County Parcels - Updated Monthly', copyright Escambia County Property Appraiser. Public REST, no auth.",
+      "exclude_fields": [
+        "MAILADDRESS1",
+        "MAILADDRESS2",
+        "MAILCITY",
+        "MAILCOUNTRY",
+        "MAILSTATE",
+        "MAILZIP",
+        "OWNER"
+      ]
     },
     "zoning": {
       "url": "https://gismaps.myescambia.com/arcgis/rest/services/Individual_Layers/Zoning/MapServer/0",
@@ -659,8 +698,17 @@
   },
   "jackson": {
     "parcels": {
-      "type": "manual",
-      "note": "gis.mijackson.org ParcelViewer/Parcels layer advertises Query but every query request fails (checked 2026-09-06). Use FL DOR statewide cadastral/NAL for Jackson parcels."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: gis.mijackson.org ParcelViewer/Parcels layer advertises Query but every query request fails (checked 2026-09-06). Use FL DOR statewide cadas...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "type": "manual",
@@ -803,8 +851,17 @@
   },
   "liberty": {
     "parcels": {
-      "type": "manual",
-      "note": "No public ArcGIS REST/API layer found for Liberty County (pop. ~8,300, one of FL's smallest/most rural counties). Parcel search available via Schneider Corp qPublic: https://qpublic.schneidercorp.com/Application.aspx?App=LibertyCountyFL&Layer=Parcels&PageType=Search (found via search; direct fetch returned HTTP 403 bot-block, but URL confirmed real via multiple independent search-result titles). Liberty County Property Appraiser site also links its own GIS maps at https://libertycountypropertyappraiser.org/gis-maps/."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No public ArcGIS REST/API layer found for Liberty County (pop. ~8,300, one of FL's smallest/most rural counties). Parcel search available vi...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "type": "manual",
@@ -813,8 +870,17 @@
   },
   "madison": {
     "parcels": {
-      "type": "manual",
-      "note": "No public ArcGIS REST/API layer found for Madison County. Parcel search via Schneider Corp qPublic: https://qpublic.schneidercorp.com/Application.aspx?App=MadisonCountyFL&Layer=Parcels&PageType=Search (confirmed real via search; direct fetch returned HTTP 403 bot-block). Madison County Property Appraiser also has a GIS/911 addressing page at https://madisonpa.com/madison-county-gis911-addressing/."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No public ArcGIS REST/API layer found for Madison County. Parcel search via Schneider Corp qPublic: https://qpublic.schneidercorp.com/Applic...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "type": "manual",
@@ -886,8 +952,17 @@
   },
   "martin": {
     "parcels": {
-      "type": "manual",
-      "note": "No public parcel REST endpoint found. Martin County Property Appraiser publishes bulk parcel data downloads at https://www.pa.martin.fl.us/tools-resources/data-downloads (listed as the 'Martin County Property Appraiser's Parcel Data' dataset on the county's ArcGIS Hub, data-mcgov.opendata.arcgis.com). geoweb.martin.fl.us's public ArcGIS REST directory (Administrative_Areas, Land_Records, etc. folders) has no parcel-boundary layer with CAMA attributes exposed publicly."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No public parcel REST endpoint found. Martin County Property Appraiser publishes bulk parcel data downloads at https://www.pa.martin.fl.us/t...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "url": "https://geoweb.martin.fl.us/arcgis/rest/services/Administrative_Areas/Administrative_Areas/MapServer/8",
@@ -945,8 +1020,20 @@
         "total_value": "PJUST1",
         "city": "CITY"
       },
-      "notes": "Monroe County 'Current Parcels' layer (APO Parcel Service). RECHAR is the Property ID (aliased 'Property ID'); PJUST1 is the current-year Just (market) value, PLAND1/PBLDG1 are land/building components, PASSD1 is assessed value. No dedicated acreage field - Shape.STArea() gives square feet. Note: mcgis4.monroecounty-fl.gov presents an unverifiable/self-signed TLS certificate - requests must ignore cert verification (curl -k) to reach it; content itself is genuine county GIS service JSON.",
-      "verify_ssl": false
+      "notes": "Key is RECHAR (RE number, 8+6 digits). The DOR roll prefixes it with a 6-digit code, so dor_key_transform last14 stores parcel_values.parcel_key as the last 14 characters for this county. Owner name/address fields excluded. Monroe County 'Current Parcels' layer (APO Parcel Service). RECHAR is the Property ID (aliased 'Property ID'); PJUST1 is the current-year Just (market) value, PLAND1/PBLDG1 are land/building components, PASSD1 is assessed value. No dedicated acreage field - Shape.STArea() gives square feet. Note: mcgis4.monroecounty-fl.gov presents an unverifiable/self-signed TLS certificate - requests must ignore cert verification (curl -k) to reach it; content itself is genuine county GIS service JSON.",
+      "verify_ssl": false,
+      "dor_key_transform": "last14",
+      "exclude_fields": [
+        "ADD1",
+        "ADD2",
+        "BUSNAME",
+        "CITY",
+        "COUNTRY",
+        "NAME",
+        "STATE",
+        "UNIT",
+        "ZIP"
+      ]
     },
     "zoning": {
       "url": "https://mcgis4.monroecounty-fl.gov/public/rest/services/APO_GIS/MapServer/19",
@@ -1000,8 +1087,17 @@
   },
   "okaloosa": {
     "parcels": {
-      "type": "manual",
-      "note": "No working public parcel-boundary REST layer with CAMA attributes found. Okaloosa County Property Appraiser's parcel data/maps are served through qPublic (Schneider Corporation) at https://qpublic.schneidercorp.com/application.aspx?AppID=855&LayerID=15999&PageTypeID=1&PageID=7111, a search-based viewer with no public API. A candidate layer (gis.myokaloosa.com/.../BaseMap_Layers/MapServer/111, labeled 'PARCELS' in search results) was checked and is only a cartographic annotation/label sub-layer of a 'PROPERTY LAYERS' group with no queryable parcel attributes (returns a JSON error when queried directly). The county's ArcGIS Hub (data-okaloosa.opendata.arcgis.com) lists a 'Parcels' dataset but its underlying REST service could not be located/confirmed."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No working public parcel-boundary REST layer with CAMA attributes found. Okaloosa County Property Appraiser's parcel data/maps are served th...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "url": "https://okgis.myokaloosa.com/arcgis/rest/services/Planning-Development/Zoning/MapServer/25",
@@ -1125,8 +1221,17 @@
   },
   "palm_beach": {
     "parcels": {
-      "type": "manual",
-      "note": "Palm Beach County Property Appraiser publishes a parcel base map for free bulk download via GIS page https://pbcpao.gov/departments/gis.htm and open data hub https://opendata2-pbcgov.opendata.arcgis.com/. The only confirmed queryable REST layer (https://maps.co.palm-beach.fl.us/arcgis/rest/services/Parcels/Parcels/MapServer/0, and the similar Parcels/homestead and Parcels/propertyuse layers) exposes just FID/Shape/Id/Cached - a cached tile index with no PCN, land-use, zoning or value attributes. Full attribute data (PCN, values, land use) requires the bulk download or the PAPA public search (pbcpao.gov), not a live queryable API."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: Palm Beach County Property Appraiser publishes a parcel base map for free bulk download via GIS page https://pbcpao.gov/departments/gis.htm ...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "url": "https://maps.co.palm-beach.fl.us/arcgis/rest/services/OpenData/Planning_Open_Data/MapServer/9",
@@ -1351,8 +1456,17 @@
   },
   "st_lucie": {
     "parcels": {
-      "type": "manual",
-      "note": "No public parcel-boundary REST/FeatureServer layer found. St. Lucie County's ArcGIS Hub (data-slc.opendata.arcgis.com, DCAT feed checked) lists ~40 datasets (Roads, Zoning, Future Land Use, Flood Zones, etc.) but no Parcels layer. Parcel/CAMA maps are served through the Property Appraiser's own system at https://saintluciecountypropertyappraiser.org/gis-maps/ and https://map.paslc.gov/search/ (Schneider/BHA 'StLucie_PAT' tax-map application), which is a search-based viewer, not an open queryable parcel REST service."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No public parcel-boundary REST/FeatureServer layer found. St. Lucie County's ArcGIS Hub (data-slc.opendata.arcgis.com, DCAT feed checked) li...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "url": "https://slcgis.stlucieco.gov/hosting/rest/services/LandUse/Zoning/MapServer/0",
@@ -1424,8 +1538,17 @@
   },
   "taylor": {
     "parcels": {
-      "type": "manual",
-      "note": "No public ArcGIS REST/API layer found for Taylor County. Parcel search via qPublic: https://qpublic.net/fl/taylor/ (Taylor County Property Appraiser's own qPublic portal, confirmed via search)."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No public ArcGIS REST/API layer found for Taylor County. Parcel search via qPublic: https://qpublic.net/fl/taylor/ (Taylor County Property A...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "type": "manual",
@@ -1434,8 +1557,17 @@
   },
   "union": {
     "parcels": {
-      "type": "manual",
-      "note": "No public ArcGIS REST/API layer found for Union County, FL (do not confuse with an ArcGIS-hosted 'UnionParcels02102026' / 'ZoningDistrict' service under org oX0kbxItOpLtURFa owned by lsmith_unioncounty - verified via spatial reference/extent (NJ State Plane, WKID 2271) and field names that this is Union County, NEW JERSEY, not Florida - excluded). Union County Property Appraiser GIS/advanced search page found via search: https://union.floridapa.com/gis/ (main site https://union.floridapa.com/)."
+      "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+      "key_field": "PARCEL_ID",
+      "field_map": {
+        "land_use_code": "DOR_UC",
+        "land_value": "LND_VAL",
+        "total_value": "JV",
+        "city": "PHY_CITY"
+      },
+      "notes": "No usable county REST parcel layer (earlier finding: No public ArcGIS REST/API layer found for Union County, FL (do not confuse with an ArcGIS-hosted 'UnionParcels02102026' / 'ZoningDistrict' s...). Geometry comes from the FL DOR statewide cadastral FeatureServer by OBJECTID for the parcels in parcel_values.",
+      "type": "statewide_geometry",
+      "batch_size": 500
     },
     "zoning": {
       "type": "manual",
