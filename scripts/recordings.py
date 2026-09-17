@@ -222,3 +222,276 @@ def parse_hernando(data):
         rec["legal_desc"] = "; ".join(rec.pop("_legals")) or None
         out.append(rec)
     return out
+
+
+# --- Storage -------------------------------------------------------------------
+PRIVATE_TABLES = ("parcel_owners", "recorded_instruments", "instrument_parties",
+                  "instrument_parcels", "recording_files")
+BATCH = 5000
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS recorded_instruments (
+    county TEXT NOT NULL,
+    instrument_no TEXT NOT NULL,
+    doc_type TEXT,
+    doc_desc TEXT,
+    category TEXT,
+    book TEXT,
+    page TEXT,
+    recorded_at TEXT,
+    consideration REAL,
+    legal_desc TEXT,
+    source_file TEXT,
+    last_synced_at TEXT NOT NULL,
+    PRIMARY KEY (county, instrument_no)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_ri_cat ON recorded_instruments(county, category, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_ri_date ON recorded_instruments(county, recorded_at);
+
+CREATE TABLE IF NOT EXISTS instrument_parties (
+    county TEXT NOT NULL,
+    instrument_no TEXT NOT NULL,
+    role TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    name_norm TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    PRIMARY KEY (county, instrument_no, role, seq)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_ip_name ON instrument_parties(county, name_key);
+
+CREATE TABLE IF NOT EXISTS instrument_parcels (
+    county TEXT NOT NULL,
+    instrument_no TEXT NOT NULL,
+    parcel_id TEXT NOT NULL,
+    parcel_key TEXT NOT NULL,
+    method TEXT NOT NULL,
+    PRIMARY KEY (county, instrument_no, parcel_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_ipar_parcel ON instrument_parcels(county, parcel_key);
+
+CREATE TABLE IF NOT EXISTS recording_files (
+    county TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    loaded_at TEXT NOT NULL,
+    rows INTEGER,
+    PRIMARY KEY (county, file_name)
+);
+"""
+
+_UPSERT_INSTRUMENT = """
+INSERT INTO recorded_instruments (county, instrument_no, doc_type, doc_desc, category,
+    book, page, recorded_at, consideration, legal_desc, source_file, last_synced_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(county, instrument_no) DO UPDATE SET
+    doc_type=excluded.doc_type, doc_desc=excluded.doc_desc, category=excluded.category,
+    book=excluded.book, page=excluded.page, recorded_at=excluded.recorded_at,
+    consideration=excluded.consideration, legal_desc=excluded.legal_desc,
+    source_file=excluded.source_file, last_synced_at=excluded.last_synced_at
+"""
+
+
+def ensure_schema(conn):
+    conn.executescript(SCHEMA)
+    conn.commit()
+
+
+def write_instruments(conn, county, records, source_file, now):
+    """Upsert instruments; parties of an instrument seen again are replaced
+    (Hillsborough re-sends modified documents in a later day's file)."""
+    n = 0
+    for i in range(0, len(records), BATCH):
+        chunk = records[i:i + BATCH]
+        conn.executemany(_UPSERT_INSTRUMENT, [
+            (county, r["instrument_no"], r["doc_type"], r["doc_desc"], r["category"],
+             r["book"], r["page"], r["recorded_at"], r["consideration"], r["legal_desc"],
+             source_file, now) for r in chunk])
+        conn.executemany("DELETE FROM instrument_parties WHERE county = ? AND instrument_no = ?",
+                         [(county, r["instrument_no"]) for r in chunk])
+        conn.executemany(
+            "INSERT OR REPLACE INTO instrument_parties (county, instrument_no, role, seq, name, name_norm, name_key) "
+            "VALUES (?,?,?,?,?,?,?)",
+            [(county, r["instrument_no"], role, seq, name, norm_name(name), name_key(name))
+             for r in chunk for role, seq, name in r["parties"]])
+        n += len(chunk)
+    conn.commit()
+    return n
+
+
+def file_loaded(conn, county, file_name):
+    return conn.execute("SELECT 1 FROM recording_files WHERE county = ? AND file_name = ?",
+                        (county, file_name)).fetchone() is not None
+
+
+def mark_file_loaded(conn, county, file_name, rows, now):
+    conn.execute("INSERT OR REPLACE INTO recording_files (county, file_name, loaded_at, rows) VALUES (?,?,?,?)",
+                 (county, file_name, now, rows))
+    conn.commit()
+
+
+# --- Feeds and sync ------------------------------------------------------------
+import os
+import sys
+import time
+from datetime import timezone
+
+import requests
+
+import etl
+from etl import log
+
+HILLS_BASE = "https://publicrec.hillsclerk.com/OfficialRecords/DailyIndexes/"
+HERN_BASE = "https://subscriber.hernandoclerk.com/"
+HERN_DIR = "/data_files/official_records/"
+UA = {"User-Agent": "fl-county-data/1.0 (public records index loader)"}
+_HREF = re.compile(r'href="([^"]+)"', re.I)
+
+
+def _get(url):
+    last = None
+    for attempt in range(1, etl.MAX_RETRIES + 1):
+        try:
+            r = requests.get(url, headers=UA, timeout=etl.TIMEOUT)
+            r.raise_for_status()
+            return r.content
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            time.sleep(min(30, 3 * attempt))
+    raise RuntimeError(f"GET {url} failed after {etl.MAX_RETRIES} attempts: {last}")
+
+
+def _hills_list():
+    html = _get(HILLS_BASE).decode("latin-1")
+    return [h.rsplit("/", 1)[-1] for h in _HREF.findall(html)]
+
+
+def _hills_units(names):
+    return [(key, [d, p]) for key, d, p in hillsborough_file_sets(names)]
+
+
+def _hills_parse(files):
+    d = next(v for k, v in files.items() if k.startswith("D"))
+    p = next(v for k, v in files.items() if k.startswith("P"))
+    return parse_hillsborough(d, p)
+
+
+def _hern_list():
+    html = _get(HERN_BASE).decode("latin-1")
+    return [h.rsplit("/", 1)[-1] for h in _HREF.findall(html) if h.startswith(HERN_DIR)]
+
+
+def _hern_units(names):
+    dated = [(hernando_file_date(n), n) for n in names if hernando_file_date(n)]
+    return [(n, [n]) for _, n in sorted(dated)]
+
+
+def _broward_ready():
+    return bool(os.environ.get("FL_BROWARD_FTP_USER") and os.environ.get("FL_BROWARD_FTP_PASS"))
+
+
+def _broward_not_implemented(*_a, **_k):
+    raise RuntimeError("Broward FTPS parser is not implemented yet; the file layout is only "
+                       "visible once the clerk issues an account (954-831-4000)")
+
+
+SOURCES = {
+    "hillsborough": {
+        "list": _hills_list,
+        "fetch": lambda name: _get(HILLS_BASE + name),
+        "units": _hills_units,
+        "parse": _hills_parse,
+        "note": "Daily D/P index files, about two months online, no login.",
+    },
+    "hernando": {
+        "list": _hern_list,
+        "fetch": lambda name: _get(HERN_BASE + HERN_DIR.lstrip("/") + name),
+        "units": _hern_units,
+        "parse": lambda files: parse_hernando(next(iter(files.values()))),
+        "note": "Weekly CSV since 2024-01-05, no login.",
+    },
+    "broward": {
+        "list": _broward_not_implemented,
+        "fetch": _broward_not_implemented,
+        "units": lambda names: [],
+        "parse": _broward_not_implemented,
+        "ready": _broward_ready,
+        "note": "FTPS bcftp.broward.org; needs FL_BROWARD_FTP_USER / FL_BROWARD_FTP_PASS.",
+    },
+}
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def link_instruments(conn, county):  # replaced in Task 7
+    return 0
+
+
+def sync_county(conn, county, source=None):
+    """Load every unit the feed lists that recording_files does not have.
+    Returns True on success, False on failure (logged to sync_log), None when
+    the source is configured but not ready (Broward without credentials)."""
+    source = source or SOURCES[county]
+    if "ready" in source and not source["ready"]():
+        log(f"[SKIP] {county} recordings: {source['note']}")
+        return None
+    ensure_schema(conn)
+    started = _now()
+    written = 0
+    loaded_units = 0
+    try:
+        names = source["list"]()
+        units = source["units"](names)
+        pending = [(k, f) for k, f in units if not file_loaded(conn, county, k)]
+        log(f"  {county} recordings: {len(units)} units listed, {len(pending)} new")
+        for key, files in pending:
+            data = {f: source["fetch"](f) for f in files}
+            records = source["parse"](data)
+            n = write_instruments(conn, county, records, key, started)
+            mark_file_loaded(conn, county, key, n, started)
+            written += n
+            loaded_units += 1
+        link_instruments(conn, county)
+        conn.execute("INSERT INTO sync_log (county, dataset_type, started_at, finished_at, status, rows_fetched) "
+                     "VALUES (?,?,?,?,?,?)", (county, "recordings", started, _now(), "success", written))
+        conn.commit()
+        log(f"[OK] {county} recordings: {written:,} instruments from {loaded_units} new units")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        conn.commit()
+        conn.execute("INSERT INTO sync_log (county, dataset_type, started_at, finished_at, status, rows_fetched, error) "
+                     "VALUES (?,?,?,?,?,?,?)", (county, "recordings", started, _now(), "failed", written, str(exc)))
+        conn.commit()
+        log(f"[FAIL] {county} recordings after {written:,} instruments: {exc}")
+        return False
+
+
+def sync_all(conn, counties=None):
+    for county in counties or list(SOURCES):
+        sync_county(conn, county)
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    flags = {a for a in sys.argv[1:] if a.startswith("--")}
+    other = etl.acquire_run_lock("recordings feed load")
+    if other:
+        log(f"[SKIP] recordings: '{other.get('name')}' (pid {other.get('pid')}) holds the database")
+        return
+    try:
+        conn = etl.get_conn()
+        counties = args or list(SOURCES)
+        if "--link-only" in flags:
+            ensure_schema(conn)
+            for c in counties:
+                link_instruments(conn, c)
+        else:
+            sync_all(conn, counties)
+        conn.close()
+    finally:
+        etl.release_run_lock()
+
+
+if __name__ == "__main__":
+    main()
