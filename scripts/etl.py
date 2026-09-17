@@ -838,6 +838,16 @@ def main():
     backfill_acreage(conn, only_county)
     backfill_city(conn, only_county)
     dor_values.apply_values_to_features(conn, only_county)
+
+    # Clerk official-records index feeds (recordings.py): Hillsborough and
+    # Hernando today, Broward once credentials exist. --no-recordings skips.
+    import recordings
+    if "--no-recordings" not in flags:
+        if only_county:
+            if only_county.lower() in recordings.SOURCES:
+                recordings.sync_county(conn, only_county.lower())
+        else:
+            recordings.sync_all(conn)
     conn.close()
     release_run_lock()
     log("=== ETL run finished ===")

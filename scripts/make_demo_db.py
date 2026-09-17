@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etl  # noqa: E402
 import dor_values  # noqa: E402
+import recordings  # noqa: E402
 
 ALWAYS_TABLES = ("sync_log",)
 
@@ -73,6 +74,17 @@ def county_sizes(src, require_parcels=False, parcel_attrs=True):
     return {c: (geo.get(c, 0) + attr.get(c, 0)) * 1.3 + vals.get(c, 0) for c in counties}
 
 
+def schema_statements(src):
+    """CREATE statements to replay in the demo, minus the owner/recording
+    tables (and their indexes), which never leave the local database."""
+    private = set(recordings.PRIVATE_TABLES)
+    for sql, tbl in src.execute(
+            "SELECT sql, tbl_name FROM sqlite_master WHERE type IN ('table','index') "
+            "AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%'"):
+        if tbl not in private:
+            yield sql
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -113,8 +125,7 @@ def main():
     dst.execute("PRAGMA synchronous=OFF")
 
     # Recreate schema exactly as the app expects (etl + dor_values own it).
-    for (sql,) in src.execute("SELECT sql FROM sqlite_master WHERE type IN ('table','index') AND sql IS NOT NULL "
-                              "AND name NOT LIKE 'sqlite_%'"):
+    for sql in schema_statements(src):
         dst.execute(sql)
 
     ph = ",".join("?" * len(chosen))
