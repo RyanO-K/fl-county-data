@@ -429,7 +429,12 @@ AMBIGUOUS_NAME_LIMIT = 5
 
 def link_instruments(conn, county):
     """Fill instrument_parcels for one county. Requires parcel_owners
-    (dor_values.sync_owners); when that table is absent nothing is linked."""
+    (dor_values.sync_owners); when that table is absent nothing is linked.
+
+    INDEXED BY is deliberate: SQLite otherwise joins parcel_owners through its
+    WITHOUT ROWID primary key (county only) and scans every owner in the
+    county per party, which turned a seconds-long link into hours (the same
+    planner trap the DOR value join works around)."""
     have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "parcel_owners" not in have:
         log(f"  {county}: parcel_owners table missing, skipping link")
@@ -441,19 +446,24 @@ def link_instruments(conn, county):
             INSERT OR IGNORE INTO instrument_parcels (county, instrument_no, parcel_id, parcel_key, method)
             SELECT ri.county, ri.instrument_no, po.parcel_id, po.parcel_key, 'clerk_no'
             FROM recorded_instruments ri
-            JOIN parcel_owners po ON po.county = ri.county AND po.{col} = ri.instrument_no
+            JOIN parcel_owners po INDEXED BY idx_po_{col.replace("_no", "")} ON po.county = ri.county AND po.{col} = ri.instrument_no
             WHERE ri.county = ?""", (county,)).rowcount
-    n += conn.execute(f"""
+    conn.execute("DROP TABLE IF EXISTS temp.ambiguous_names")
+    conn.execute(f"""
+        CREATE TEMP TABLE ambiguous_names AS
+        SELECT owner_name_key AS name_key FROM parcel_owners INDEXED BY idx_po_name
+        WHERE county = ? AND owner_name_key <> ''
+        GROUP BY owner_name_key HAVING COUNT(*) > {AMBIGUOUS_NAME_LIMIT}""", (county,))
+    n += conn.execute("""
         INSERT OR IGNORE INTO instrument_parcels (county, instrument_no, parcel_id, parcel_key, method)
         SELECT ip.county, ip.instrument_no, po.parcel_id, po.parcel_key, 'owner_name'
-        FROM instrument_parties ip
-        JOIN parcel_owners po ON po.county = ip.county AND po.owner_name_key = ip.name_key
+        FROM instrument_parties ip INDEXED BY idx_ip_name
+        JOIN parcel_owners po INDEXED BY idx_po_name
+          ON po.county = ip.county AND po.owner_name_key = ip.name_key
         WHERE ip.county = ? AND ip.name_key <> ''
-          AND ip.name_key NOT IN (
-              SELECT owner_name_key FROM parcel_owners
-              WHERE county = ? AND owner_name_key <> ''
-              GROUP BY owner_name_key HAVING COUNT(*) > {AMBIGUOUS_NAME_LIMIT})""",
-        (county, county)).rowcount
+          AND ip.name_key NOT IN (SELECT name_key FROM temp.ambiguous_names)""",
+        (county,)).rowcount
+    conn.execute("DROP TABLE IF EXISTS temp.ambiguous_names")
     conn.commit()
     log(f"  {county}: {n:,} instrument-parcel links added in {time.time() - t0:.0f}s")
     return n
