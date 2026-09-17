@@ -134,9 +134,14 @@ def build_filters(args, conn=None):
         params.extend([like, like, like, like, like])
 
     if conn is not None and has_table(conn, "instrument_parcels"):
-        link = ("EXISTS (SELECT 1 FROM instrument_parcels ip JOIN recorded_instruments ri "
-                "ON ri.county = ip.county AND ri.instrument_no = ip.instrument_no "
-                "WHERE ip.county = features.county AND ip.parcel_key = features.feature_key_norm {cond})")
+        # Uncorrelated set of (county, parcel_key) matching the instrument
+        # criteria: SQLite materializes it once and probes it per feature row.
+        # A correlated EXISTS here made the planner drive from the instrument
+        # date index and rescan every recent instrument for every parcel.
+        link = ("(features.county, features.feature_key_norm) IN ("
+                "SELECT ip.county, ip.parcel_key FROM recorded_instruments ri "
+                "JOIN instrument_parcels ip ON ip.county = ri.county AND ip.instrument_no = ri.instrument_no "
+                "WHERE {cond})")
         since = (args.get("mortgage_since") or "").strip()
         mmin, mmax = args.get("mortgage_min"), args.get("mortgage_max")
         conds, mparams = [], []
@@ -151,17 +156,22 @@ def build_filters(args, conn=None):
                     continue
                 conds.append(f"AND ri.consideration {op} ?")
         if conds:
-            clauses.append(link.format(cond="AND ri.category = 'mortgage' " + " ".join(conds)))
+            clauses.append(link.format(cond="ri.category = 'mortgage' " + " ".join(conds)))
             params.extend(mparams)
         if args.get("has_lien") == "1":
-            # An open lien: a lien/lis pendens/judgment with no later
-            # satisfaction or release recorded against the same parcel.
-            clauses.append(link.format(
-                cond="AND ri.category IN ('lien','lis_pendens','judgment') AND NOT EXISTS ("
-                     "SELECT 1 FROM instrument_parcels ip2 JOIN recorded_instruments r2 "
-                     "ON r2.county = ip2.county AND r2.instrument_no = ip2.instrument_no "
-                     "WHERE ip2.county = ip.county AND ip2.parcel_key = ip.parcel_key "
-                     "AND r2.category IN ('satisfaction','release') AND r2.recorded_at > ri.recorded_at)"))
+            # Open lien: the parcel's latest lien / lis pendens / judgment is
+            # newer than its latest satisfaction or release (or it has none).
+            # Two grouped passes over the instrument tables, materialized once.
+            by_key = ("SELECT ip.county, ip.parcel_key, MAX(ri.recorded_at) AS last_at "
+                      "FROM recorded_instruments ri JOIN instrument_parcels ip "
+                      "ON ip.county = ri.county AND ip.instrument_no = ri.instrument_no "
+                      "WHERE ri.category IN ({cats}) GROUP BY ip.county, ip.parcel_key")
+            clauses.append(
+                "(features.county, features.feature_key_norm) IN ("
+                "SELECT l.county, l.parcel_key FROM (" + by_key.format(cats="'lien','lis_pendens','judgment'") + ") l "
+                "LEFT JOIN (" + by_key.format(cats="'satisfaction','release'") + ") r "
+                "ON r.county = l.county AND r.parcel_key = l.parcel_key "
+                "WHERE r.last_at IS NULL OR r.last_at < l.last_at)")
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params
