@@ -24,6 +24,7 @@ import requests
 
 from etl import MAX_RETRIES, TIMEOUT, get_conn, log, normalize_key  # noqa: F401  (one key normalizer for both tables)
 import etl
+import recordings
 
 _DOR_KEY_TRANSFORMS = None
 
@@ -73,6 +74,56 @@ FIELDS = [
     "SALE_PRC2", "SALE_YR2", "SALE_MO2", "QUAL_CD2",
     "PHY_ADDR1", "PHY_CITY", "PHY_ZIPCD",
 ]
+
+OWNER_FIELDS = [
+    "OWN_NAME", "OWN_ADDR1", "OWN_ADDR2", "OWN_CITY", "OWN_STATE", "OWN_ZIPCD", "OWN_STATE_",
+    "OR_BOOK1", "OR_PAGE1", "CLERK_NO1", "OR_BOOK2", "OR_PAGE2", "CLERK_NO2",
+]
+QUERY_FIELDS = FIELDS + OWNER_FIELDS
+
+OWNER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS parcel_owners (
+    county TEXT NOT NULL,
+    parcel_id TEXT NOT NULL,
+    parcel_key TEXT NOT NULL,
+    owner_name TEXT,
+    owner_name_norm TEXT,
+    owner_name_key TEXT,
+    mail_addr1 TEXT,
+    mail_addr2 TEXT,
+    mail_city TEXT,
+    mail_state TEXT,
+    mail_zip TEXT,
+    owner_state_dom TEXT,
+    or_book1 TEXT,
+    or_page1 TEXT,
+    clerk_no1 TEXT,
+    or_book2 TEXT,
+    or_page2 TEXT,
+    clerk_no2 TEXT,
+    last_synced_at TEXT NOT NULL,
+    PRIMARY KEY (county, parcel_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_po_key ON parcel_owners(county, parcel_key);
+CREATE INDEX IF NOT EXISTS idx_po_name ON parcel_owners(county, owner_name_key);
+CREATE INDEX IF NOT EXISTS idx_po_clerk1 ON parcel_owners(county, clerk_no1);
+CREATE INDEX IF NOT EXISTS idx_po_clerk2 ON parcel_owners(county, clerk_no2);
+"""
+
+OWNER_UPSERT = """
+INSERT INTO parcel_owners (county, parcel_id, parcel_key, owner_name, owner_name_norm, owner_name_key,
+    mail_addr1, mail_addr2, mail_city, mail_state, mail_zip, owner_state_dom,
+    or_book1, or_page1, clerk_no1, or_book2, or_page2, clerk_no2, last_synced_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(county, parcel_id) DO UPDATE SET
+    parcel_key=excluded.parcel_key, owner_name=excluded.owner_name,
+    owner_name_norm=excluded.owner_name_norm, owner_name_key=excluded.owner_name_key,
+    mail_addr1=excluded.mail_addr1, mail_addr2=excluded.mail_addr2, mail_city=excluded.mail_city,
+    mail_state=excluded.mail_state, mail_zip=excluded.mail_zip, owner_state_dom=excluded.owner_state_dom,
+    or_book1=excluded.or_book1, or_page1=excluded.or_page1, clerk_no1=excluded.clerk_no1,
+    or_book2=excluded.or_book2, or_page2=excluded.or_page2, clerk_no2=excluded.clerk_no2,
+    last_synced_at=excluded.last_synced_at
+"""
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS parcel_values (
@@ -183,6 +234,34 @@ def _sale_price(v):
     return n if n and n > 0 else None
 
 
+def ensure_owner_schema(conn):
+    conn.executescript(OWNER_SCHEMA)
+    conn.commit()
+
+
+def owner_row_from_attrs(a, now):
+    co_no = _int(a.get("CO_NO"))
+    county = DOR_COUNTY_CODES.get(co_no)
+    pid = _text(a.get("PARCEL_ID"))
+    if county is None or not pid:
+        return None
+    name = _text(a.get("OWN_NAME"))
+    return (
+        county, pid, dor_key(county, pid), name, recordings.norm_name(name), recordings.name_key(name),
+        _text(a.get("OWN_ADDR1")), _text(a.get("OWN_ADDR2")), _text(a.get("OWN_CITY")),
+        _text(a.get("OWN_STATE")), _zip(a.get("OWN_ZIPCD")), _text(a.get("OWN_STATE_")),
+        _text(a.get("OR_BOOK1")), _text(a.get("OR_PAGE1")), _text(a.get("CLERK_NO1")),
+        _text(a.get("OR_BOOK2")), _text(a.get("OR_PAGE2")), _text(a.get("CLERK_NO2")),
+        now,
+    )
+
+
+def county_objectid_range(conn, county):
+    lo, hi = conn.execute("SELECT MIN(source_objectid), MAX(source_objectid) FROM parcel_values WHERE county = ?",
+                          (county,)).fetchone()
+    return (int(lo), int(hi)) if lo is not None else None
+
+
 def row_from_attrs(a, now):
     co_no = _int(a.get("CO_NO"))
     county = DOR_COUNTY_CODES.get(co_no)
@@ -238,7 +317,7 @@ def _worker(idx, lo, hi, out, errors, stop):
             data = _post({
                 "where": f"OBJECTID > {last} AND OBJECTID <= {hi}",
                 "orderByFields": "OBJECTID ASC",
-                "outFields": ",".join(FIELDS),
+                "outFields": ",".join(QUERY_FIELDS),
                 "returnGeometry": "false",
                 "resultRecordCount": PAGE,
                 "f": "json",
@@ -257,6 +336,7 @@ def _worker(idx, lo, hi, out, errors, stop):
 
 def sync_statewide_values(conn):
     ensure_schema(conn)
+    ensure_owner_schema(conn)
     started = datetime.now(timezone.utc).isoformat()
     log("=== statewide DOR values sync started ===")
     t0 = time.time()
@@ -289,6 +369,8 @@ def sync_statewide_values(conn):
                     rows.append(r)
                     written_by_county[r[0]] = written_by_county.get(r[0], 0) + 1
             conn.executemany(UPSERT, rows)
+            owner_rows = [o for o in (owner_row_from_attrs(a, started) for a in item) if o is not None]
+            conn.executemany(OWNER_UPSERT, owner_rows)
             total += len(rows)
             pages += 1
             if pages % COMMIT_EVERY == 0:
@@ -304,6 +386,7 @@ def sync_statewide_values(conn):
 
         # Full pass succeeded: parcels no longer in the roll are dropped.
         removed = conn.execute("DELETE FROM parcel_values WHERE last_synced_at < ?", (started,)).rowcount
+        conn.execute("DELETE FROM parcel_owners WHERE last_synced_at < ?", (started,))
         conn.commit()
         finished = datetime.now(timezone.utc).isoformat()
         for county, n in sorted(written_by_county.items()):
@@ -325,6 +408,70 @@ def sync_statewide_values(conn):
             ("statewide", "dor_values", started, datetime.now(timezone.utc).isoformat(), "failed", total, str(exc)))
         conn.commit()
         log(f"[FAIL] statewide DOR values after {total:,} rows: {exc}")
+        return False
+
+
+def sync_owners(conn, county=None):
+    """Owners-only pull. With a county: just that county's contiguous OBJECTID
+    block (Orange: about 490k rows, a minute or two), which is how a county
+    gets owners before the next 15-minute statewide pass. Without: the whole
+    layer, and stale rows are swept."""
+    ensure_schema(conn)
+    ensure_owner_schema(conn)
+    started = datetime.now(timezone.utc).isoformat()
+    label = county or "statewide"
+    t0 = time.time()
+    total = 0
+    errors = []
+    try:
+        if county:
+            rng = county_objectid_range(conn, county)
+            if rng is None:
+                raise RuntimeError(f"no parcel_values rows for {county}; run the statewide pull first")
+            lo, hi = rng[0] - 1, rng[1]
+        else:
+            lo, hi = 0, max_object_id()
+        span = (hi - lo) // WORKERS + 1
+        ranges = [(lo + i * span, min(hi, lo + (i + 1) * span)) for i in range(WORKERS)]
+        out = queue.Queue(maxsize=WORKERS * 4)
+        stop = threading.Event()
+        threads = [threading.Thread(target=_worker, args=(i, a, b, out, errors, stop), daemon=True)
+                   for i, (a, b) in enumerate(ranges)]
+        for t in threads:
+            t.start()
+        done = pages = 0
+        while done < len(threads):
+            item = out.get()
+            if item is None:
+                done += 1
+                continue
+            rows = [o for o in (owner_row_from_attrs(a, started) for a in item)
+                    if o is not None and (county is None or o[0] == county)]
+            conn.executemany(OWNER_UPSERT, rows)
+            total += len(rows)
+            pages += 1
+            if pages % COMMIT_EVERY == 0:
+                conn.commit()
+            if pages % 50 == 0:
+                log(f"  owners ({label}): {total:,} rows written")
+        conn.commit()
+        for t in threads:
+            t.join()
+        if errors:
+            raise RuntimeError("; ".join(errors))
+        if county is None:
+            conn.execute("DELETE FROM parcel_owners WHERE last_synced_at < ?", (started,))
+        conn.execute("INSERT INTO sync_log (county, dataset_type, started_at, finished_at, status, rows_fetched) "
+                     "VALUES (?,?,?,?,?,?)", (label, "owners", started, datetime.now(timezone.utc).isoformat(), "success", total))
+        conn.commit()
+        log(f"[OK] owners ({label}): {total:,} rows in {(time.time() - t0) / 60:.1f} min")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        conn.commit()
+        conn.execute("INSERT INTO sync_log (county, dataset_type, started_at, finished_at, status, rows_fetched, error) "
+                     "VALUES (?,?,?,?,?,?,?)", (label, "owners", started, datetime.now(timezone.utc).isoformat(), "failed", total, str(exc)))
+        conn.commit()
+        log(f"[FAIL] owners ({label}) after {total:,} rows: {exc}")
         return False
 
 
@@ -377,11 +524,23 @@ def apply_values_to_features(conn, county=None):
 
 
 def main():
-    conn = get_conn()
-    if "--join-only" not in sys.argv:
-        sync_statewide_values(conn)
-    apply_values_to_features(conn)
-    conn.close()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    other = etl.acquire_run_lock("dor_values")
+    if other:
+        log(f"[SKIP] dor_values: '{other.get('name')}' (pid {other.get('pid')}) holds the database")
+        return
+    try:
+        conn = get_conn()
+        if "--owners" in sys.argv:
+            target = args[0] if args else "all"
+            sync_owners(conn, None if target == "all" else target)
+        else:
+            if "--join-only" not in sys.argv:
+                sync_statewide_values(conn)
+            apply_values_to_features(conn)
+        conn.close()
+    finally:
+        etl.release_run_lock()
 
 
 if __name__ == "__main__":
