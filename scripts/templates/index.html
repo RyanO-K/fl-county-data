@@ -55,6 +55,7 @@
             <th class="sortable" data-sort-key="zoning" title="Zoning layer: last successful sync and rows loaded">Zoning</th>
             <th class="sortable" data-sort-key="land_use" title="Existing land use layer: last successful sync and rows loaded">Land use</th>
             <th class="sortable" data-sort-key="future_land_use" title="Future land use layer: last successful sync and rows loaded">Future land use</th>
+            <th class="sortable" data-sort-key="recordings" title="Clerk official-records index feed: last successful load and instruments stored">Recordings</th>
           </tr>
         </thead>
         <tbody id="status-tbody"></tbody>
@@ -90,6 +91,18 @@
       <label>Max acreage
         <input type="number" step="any" id="f-max-acre" placeholder="any">
       </label>
+      <span class="recording-filters" {% if demo %}hidden{% endif %}>
+        <label>Mortgage since
+          <input type="date" id="f-mtg-since" title="Parcels with a linked mortgage recorded on or after this date (clerk index feeds)">
+        </label>
+        <label>Min mortgage $
+          <input type="number" step="any" id="f-mtg-min" placeholder="any" title="Mortgage amount is only known where the clerk index carries it">
+        </label>
+        <label>Max mortgage $
+          <input type="number" step="any" id="f-mtg-max" placeholder="any">
+        </label>
+        <label class="check"><input type="checkbox" id="f-lien"> Open lien / lis pendens</label>
+      </span>
       <label class="grow">Search
         <input type="text" id="f-q" placeholder="zoning / land use description, code, parcel id...">
       </label>

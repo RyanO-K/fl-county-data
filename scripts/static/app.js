@@ -10,6 +10,12 @@ const state = {
   land_use_code: "",
   min_acreage: "",
   max_acreage: "",
+  // Recorded-instrument filters. Local build only: the demo database has no
+  // instrument tables, so the API ignores these and the inputs are hidden.
+  mortgage_since: "",
+  mortgage_min: "",
+  mortgage_max: "",
+  has_lien: "",
   q: "",
   page: 1,
   per_page: 50,
@@ -69,6 +75,10 @@ function currentFilterParams(extra) {
     land_use_code: state.land_use_code,
     min_acreage: state.min_acreage,
     max_acreage: state.max_acreage,
+    mortgage_since: state.mortgage_since,
+    mortgage_min: state.mortgage_min,
+    mortgage_max: state.mortgage_max,
+    has_lien: state.has_lien,
     q: state.q,
   }, extra || {});
 }
@@ -498,6 +508,40 @@ async function showDetail(id) {
         : `<p class="hint">${window.DEMO_MODE && data.dataset_type === "parcels"
             ? "Raw source attributes are omitted for parcels in the public demo to fit the free host; the full build keeps them."
             : "No additional attributes."}</p>`);
+    // Owner and recorded instruments live in tables the demo database does not
+    // carry, so the endpoints 404 there; fetchJSON throws on 404, hence catch.
+    if (data.dataset_type === "parcels" && !window.DEMO_MODE) {
+      const [owner, inst] = await Promise.all([
+        fetchJSON(`/api/feature/${id}/owner`).catch(() => null),
+        fetchJSON(`/api/feature/${id}/instruments`).catch(() => null),
+      ]);
+      let extra = "";
+      if (owner) {
+        const addr = [owner.mail_addr1, owner.mail_addr2,
+          [owner.mail_city, owner.mail_state, owner.mail_zip].filter(Boolean).join(" ")].filter(Boolean);
+        extra += `<h4>Owner <span class="source-note">FL DOR tax roll</span></h4><table class="detail-table">` +
+          `<tr>${fieldTh("Owner")}<td>${esc(owner.owner_name || "—")}</td></tr>` +
+          `<tr>${fieldTh("Mailing address")}<td>${addr.map(esc).join("<br>") || "—"}</td></tr>` +
+          (owner.owner_state_dom ? `<tr>${fieldTh("Domicile")}<td>${esc(owner.owner_state_dom)}</td></tr>` : "") +
+          (owner.clerk_no1 || owner.or_book1
+            ? `<tr>${fieldTh("Last deed ref")}<td>${esc(owner.clerk_no1 || `Book ${owner.or_book1} Page ${owner.or_page1}`)}</td></tr>` : "") +
+          `</table>`;
+      }
+      if (inst && inst.instruments.length) {
+        const rows = inst.instruments.map((r) => {
+          const other = r.parties.filter((p) => p.role === "grantee").map((p) => p.name).join("; ");
+          return `<tr><td>${esc((r.recorded_at || "").slice(0, 10))}</td><td>${esc(pretty(r.category))}</td>` +
+            `<td>${esc(r.doc_desc || "")}</td><td>${r.consideration ? fmtMoney(r.consideration) : "—"}</td>` +
+            `<td>${esc(other)}</td><td>${esc([r.book, r.page].filter(Boolean).join("/") || r.instrument_no)}</td></tr>`;
+        }).join("");
+        extra += `<h4>Recorded instruments <span class="source-note">county clerk index; linked by ${esc(inst.instruments[0].method === "clerk_no" ? "deed number" : "owner name")}</span></h4>` +
+          `<table class="detail-table instruments"><tr><th>Recorded</th><th>Type</th><th>Description</th><th>Amount</th><th>To</th><th>Ref</th></tr>${rows}</table>` +
+          `<p class="hint">Mortgage amounts appear only when the clerk index carries them.</p>`;
+      } else if (owner) {
+        extra += `<p class="hint">No recorded instruments linked to this parcel (feeds cover Hillsborough and Hernando).</p>`;
+      }
+      body.insertAdjacentHTML("beforeend", extra);
+    }
   } catch (e) {
     body.textContent = "Failed to load detail: " + e.message;
   }
@@ -510,7 +554,7 @@ async function showDetail(id) {
  * (county, dataset) carrying the last successful time, the live row count and
  * the current state (ok / failed / running / manual / not loaded).
  * ------------------------------------------------------------------- */
-const STATUS_COLUMNS = ["dor_values", "parcels", "zoning", "land_use", "future_land_use"];
+const STATUS_COLUMNS = ["dor_values", "parcels", "zoning", "land_use", "future_land_use", "recordings"];
 
 /* "2 h ago" for the cell, exact timestamp on hover. */
 function fmtAgo(iso) {
@@ -567,9 +611,10 @@ function statusCellKey(cell) {
 function statusCellHtml(cell, dataset) {
   if (!cell) return '<span class="ds-none">—</span>';
   const sub = (html) => `<span class="ds-sub">${html}</span>`;
-  // The DOR values column counts tax-roll parcels for the county, not rows of
-  // a county layer, so it gets its own noun.
-  const noun = dataset === "dor_values" ? "parcel" : "row";
+  // The DOR values column counts tax-roll parcels for the county, and the
+  // recordings column counts clerk instruments, not rows of a county layer, so
+  // each gets its own noun.
+  const noun = dataset === "dor_values" ? "parcel" : dataset === "recordings" ? "instrument" : "row";
   const rows = cell.row_count ? countText(cell.row_count, noun) : `no ${noun}s`;
   const rate = dataset === "parcels" ? joinRateText(cell) : "";
 
@@ -1397,6 +1442,10 @@ function readFiltersFromForm() {
   state.land_use_code = document.getElementById("f-landuse").value;
   state.min_acreage = document.getElementById("f-min-acre").value;
   state.max_acreage = document.getElementById("f-max-acre").value;
+  state.mortgage_since = document.getElementById("f-mtg-since").value;
+  state.mortgage_min = document.getElementById("f-mtg-min").value;
+  state.mortgage_max = document.getElementById("f-mtg-max").value;
+  state.has_lien = document.getElementById("f-lien").checked ? "1" : "";
   state.q = document.getElementById("f-q").value;
   state.page = 1;
 }

@@ -24,6 +24,7 @@ from flask import Flask, g, jsonify, render_template, request
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 import etl  # noqa: E402  (same folder)
+import recordings  # noqa: E402
 DB_PATH = etl.DB_PATH
 SOURCES_PATH = BASE_DIR / "scripts" / "sources.json"
 DOR_LAYER_URL = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
@@ -87,8 +88,19 @@ def close_db(_exc):
         conn.close()
 
 
-def build_filters(args):
-    """Translate query-string filters into a WHERE clause + params list."""
+def has_table(conn, name):
+    """True when this database has the named table. The private owner/
+    recordings tables are absent from the demo database, and every feature
+    that reads them is a no-op there."""
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
+def build_filters(args, conn=None):
+    """Translate query-string filters into a WHERE clause + params list.
+
+    `conn` is only needed for the recorded-instrument filters (mortgage_since,
+    mortgage_min, mortgage_max, has_lien), which are skipped when it is None or
+    the instrument tables are absent."""
     clauses = []
     params = []
 
@@ -120,6 +132,36 @@ def build_filters(args):
             "OR land_use_code LIKE ? OR feature_key LIKE ?)"
         )
         params.extend([like, like, like, like, like])
+
+    if conn is not None and has_table(conn, "instrument_parcels"):
+        link = ("EXISTS (SELECT 1 FROM instrument_parcels ip JOIN recorded_instruments ri "
+                "ON ri.county = ip.county AND ri.instrument_no = ip.instrument_no "
+                "WHERE ip.county = features.county AND ip.parcel_key = features.feature_key_norm {cond})")
+        since = (args.get("mortgage_since") or "").strip()
+        mmin, mmax = args.get("mortgage_min"), args.get("mortgage_max")
+        conds, mparams = [], []
+        if since:
+            conds.append("AND ri.recorded_at >= ?")
+            mparams.append(since)
+        for v, op in ((mmin, ">="), (mmax, "<=")):
+            if v not in (None, ""):
+                try:
+                    mparams.append(float(v))
+                except ValueError:
+                    continue
+                conds.append(f"AND ri.consideration {op} ?")
+        if conds:
+            clauses.append(link.format(cond="AND ri.category = 'mortgage' " + " ".join(conds)))
+            params.extend(mparams)
+        if args.get("has_lien") == "1":
+            # An open lien: a lien/lis pendens/judgment with no later
+            # satisfaction or release recorded against the same parcel.
+            clauses.append(link.format(
+                cond="AND ri.category IN ('lien','lis_pendens','judgment') AND NOT EXISTS ("
+                     "SELECT 1 FROM instrument_parcels ip2 JOIN recorded_instruments r2 "
+                     "ON r2.county = ip2.county AND r2.instrument_no = ip2.instrument_no "
+                     "WHERE ip2.county = ip.county AND ip2.parcel_key = ip.parcel_key "
+                     "AND r2.category IN ('satisfaction','release') AND r2.recorded_at > ri.recorded_at)"))
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params
@@ -289,7 +331,7 @@ def api_facets():
 @app.route("/api/features")
 def api_features():
     conn = get_db()
-    where, params = build_filters(request.args)
+    where, params = build_filters(request.args, conn)
 
     try:
         page = max(1, int(request.args.get("page", 1)))
@@ -357,7 +399,7 @@ def api_features_geometry():
     keyset paging on id (fast at any depth, unlike OFFSET). `total` is only
     computed on the first chunk (after_id=0)."""
     conn = get_db()
-    where, params = build_filters(request.args)
+    where, params = build_filters(request.args, conn)
     try:
         after_id = max(0, int(request.args.get("after_id", 0)))
     except ValueError:
@@ -397,6 +439,55 @@ def api_feature_detail(feature_id):
     if row is None:
         return jsonify({"error": "not found"}), 404
     return jsonify(row_dict(row))
+
+
+def _feature_parcel(conn, feature_id):
+    """(county, parcel_key) for a parcel feature, or None. parcel_key is the
+    normalized id both parcel_owners and instrument_parcels key on."""
+    row = conn.execute("SELECT county, feature_key_norm FROM features WHERE id = ? AND dataset_type = 'parcels'",
+                       (feature_id,)).fetchone()
+    return (row["county"], row["feature_key_norm"]) if row else None
+
+
+@app.route("/api/feature/<int:feature_id>/owner")
+def api_feature_owner(feature_id):
+    """Owner of record from the statewide DOR roll. 404 when the parcel has no
+    owner row, or (demo database) when parcel_owners does not exist."""
+    conn = get_db()
+    key = _feature_parcel(conn, feature_id)
+    if key is None or not has_table(conn, "parcel_owners"):
+        return jsonify({"error": "not found"}), 404
+    row = conn.execute(
+        "SELECT owner_name, mail_addr1, mail_addr2, mail_city, mail_state, mail_zip, owner_state_dom, "
+        "or_book1, or_page1, clerk_no1, last_synced_at FROM parcel_owners WHERE county = ? AND parcel_key = ? LIMIT 1",
+        key).fetchone()
+    if row is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(dict(row))
+
+
+@app.route("/api/feature/<int:feature_id>/instruments")
+def api_feature_instruments(feature_id):
+    """Recorded instruments linked to this parcel, newest first. 404 when the
+    instrument tables do not exist (demo database)."""
+    conn = get_db()
+    key = _feature_parcel(conn, feature_id)
+    if key is None or not has_table(conn, "instrument_parcels"):
+        return jsonify({"error": "not found"}), 404
+    rows = conn.execute(
+        "SELECT ri.instrument_no, ri.category, ri.doc_desc, ri.recorded_at, ri.consideration, ri.book, ri.page, ip.method "
+        "FROM instrument_parcels ip JOIN recorded_instruments ri "
+        "ON ri.county = ip.county AND ri.instrument_no = ip.instrument_no "
+        "WHERE ip.county = ? AND ip.parcel_key = ? ORDER BY ri.recorded_at DESC, ri.instrument_no DESC LIMIT 200",
+        key).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["parties"] = [{"role": p["role"], "name": p["name"]} for p in conn.execute(
+            "SELECT role, name FROM instrument_parties WHERE county = ? AND instrument_no = ? ORDER BY role, seq",
+            (key[0], r["instrument_no"]))]
+        out.append(d)
+    return jsonify({"instruments": out})
 
 
 @app.route("/api/values")
@@ -742,6 +833,11 @@ def _build_status_counties(conn):
     value_counts = {r["county"]: r["row_count"] for r in conn.execute(
         "SELECT county, COUNT(*) AS row_count FROM parcel_values GROUP BY county"
     )}
+    # Recorded instruments are a local-only table: absent from the demo database.
+    rec_counts = {}
+    if has_table(conn, "recorded_instruments"):
+        rec_counts = {r["county"]: r["n"] for r in conn.execute(
+            "SELECT county, COUNT(*) AS n FROM recorded_instruments GROUP BY county")}
 
     # DOR values are one statewide sync (dor_values.py) that writes a
     # county='statewide' sync_log row plus per-county rows; the statewide row is
@@ -776,6 +872,13 @@ def _build_status_counties(conn):
         dor_cell["rows_fetched"] = None  # statewide total; meaningless per county
         dor_cell["scope"] = "statewide"
         datasets["dor_values"] = dor_cell
+        rec_src = recordings.SOURCES.get(county)
+        datasets["recordings"] = _cell(
+            {"type": "feed", "note": rec_src["note"]} if rec_src else None,
+            latest.get((county, "recordings")),
+            last_ok.get((county, "recordings")),
+            rec_counts.get(county, 0),
+        )
         failing += sum(1 for c in datasets.values() if c["state"] == "failed")
         rows.append({
             "county": county,
@@ -787,7 +890,7 @@ def _build_status_counties(conn):
     total_features = sum(counts.values())
     return {
         "counties": rows,
-        "dataset_types": ["dor_values"] + list(STATUS_DATASETS),
+        "dataset_types": ["dor_values"] + list(STATUS_DATASETS) + ["recordings"],
         "priority_counties": priority,
         "summary": {
             "total_features": total_features,

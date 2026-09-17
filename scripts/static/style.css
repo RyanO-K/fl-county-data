@@ -451,3 +451,14 @@ abbr.gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
   padding: 8px 24px; font-size: 13px; line-height: 1.45;
 }
 .demo-banner a { color: #1d4ed8; }
+
+/* The recording filters are one wrapper so the demo can hide them all with a
+ * single `hidden`, but they must still lay out as siblings of the other
+ * filter labels inside the flex row -- hence display: contents. That author
+ * rule outranks the browser's [hidden] { display: none }, so restate it. */
+.recording-filters { display: contents; }
+.recording-filters[hidden] { display: none; }
+.filters label.check { flex-direction: row; align-items: center; gap: .4em; }
+/* .filters input sets min-width: 130px, which would stretch the checkbox. */
+.filters input[type=checkbox] { min-width: 0; width: auto; padding: 0; }
+.detail-table.instruments th { text-align: left; }

@@ -160,7 +160,9 @@ def main():
     print(f"parcel_values: {m:,}")
 
     scols = [r[1] for r in src.execute("PRAGMA table_info(sync_log)")]
-    rows = src.execute(f"SELECT {', '.join(scols)} FROM sync_log WHERE county IN ({ph}) OR county='statewide'", chosen).fetchall()
+    # Owner and recordings runs stay local with their tables (recordings.PRIVATE_TABLES).
+    rows = src.execute(f"SELECT {', '.join(scols)} FROM sync_log WHERE (county IN ({ph}) OR county='statewide') "
+                       "AND dataset_type NOT IN ('owners', 'recordings')", chosen).fetchall()
     dst.executemany(f"INSERT INTO sync_log ({', '.join(scols)}) VALUES ({','.join('?'*len(scols))})", rows)
 
     dst.execute("CREATE TABLE IF NOT EXISTS demo_info (key TEXT PRIMARY KEY, value TEXT)")
