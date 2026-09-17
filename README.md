@@ -13,7 +13,7 @@ fl-county-data/
   .venv/                 - isolated Python environment (requests, pyshp)
   scripts/
     sources.json         - verified source URLs + field mappings, one block per county
-    etl.py                - main sync script (run this daily)
+    etl.py                - main sync script (scheduled weekly)
     recordings.py         - clerk official-records index feeds (Hillsborough, Hernando) -> recorded instruments linked to parcels
     validate_sources.py   - quick smoke test against all configured sources
   data/
@@ -255,7 +255,7 @@ Layers whose `maxRecordCount` is under 1000 are fetched by object-id batches (`r
 
 ### Run lock
 
-`etl.py` (the scheduled daily refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.
+`etl.py` (the scheduled weekly refresh) and `load_all.py` (initial bulk load) never write at the same time: whichever starts first writes `etl.lock` (pid + name) next to the database, and the other logs `[SKIP] ... holds the database` and exits. A lock whose pid is no longer running is ignored. The Windows task `FLCountyDataETL` has *start when available* on, so a missed Sunday 3 AM run fires at next wake; with the lock it simply skips while a bulk load is still running.
 
 ### Extra source config keys
 - `"where"`: optional ArcGIS SQL filter applied to every query for that layer (used when one service holds more than one county, e.g. the Baker/Nassau parcel layer).
@@ -282,8 +282,8 @@ the "Min/Max mortgage $" filter only matches instruments whose amount is known.
 `python scripts/dor_values.py --owners orange` loads one county's owners
 from its contiguous block of the statewide layer in about five minutes (Orange
 is first); `--owners all` does the whole state. `python scripts/recordings.py
-[county]` loads new feed files; `etl.py` runs both daily (`--no-recordings`
-skips the feeds).
+[county]` loads new feed files; `etl.py` runs both on every scheduled run
+(`--no-recordings` skips the feeds).
 
 These five tables (`parcel_owners`, `recorded_instruments`,
 `instrument_parties`, `instrument_parcels`, `recording_files`) are never
@@ -352,11 +352,13 @@ asset, and trigger a deploy (or push a commit).
    Pinellas, Miami-Dade, Duval, Charlotte, Marion) could have those mapped
    into `field_map` for fresher numbers; only value fields are mapped today.
 
-## Daily scheduling
+## Weekly scheduling
 
 See `scripts/setup_daily_task.ps1` — registers a Windows Task Scheduler
-job that runs `etl.py` once per day. Check `logs/etl.log` and the
-`sync_log` table after each run to confirm it's healthy.
+job that runs `etl.py` once a week, Sunday at 3:00 AM, with a 12-hour stop
+limit. (It ran nightly until 2026-09-17; a degraded county service can turn
+one refresh into a day-long run.) Check `logs/etl.log` and the `sync_log`
+table after each run to confirm it's healthy.
 
 ## Running the web UI
 
