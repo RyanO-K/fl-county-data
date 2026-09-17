@@ -48,15 +48,22 @@ def apply(scanned_path, target):
     target.execute("ATTACH DATABASE ? AS rec", (str(scanned_path),))
     col_list = ", ".join(cols)
     t0 = time.time()
-    # Newest image of each natural key wins; INSERT OR IGNORE then guards the
-    # unique (county, dataset_type, feature_key) and the id primary key.
-    n = target.execute(f"""
-        INSERT OR IGNORE INTO features ({col_list})
-        SELECT {col_list} FROM (
+    total, distinct = target.execute(
+        f"SELECT COUNT(*), COUNT(DISTINCT county || '|' || dataset_type || '|' || feature_key) "
+        f"FROM rec.features WHERE {WHERE}").fetchone()
+    if total == distinct:
+        # No older images to resolve: a straight insert avoids a 14 GB temp
+        # sort (the window-function path filled the temp drive).
+        src = f"SELECT {col_list} FROM rec.features WHERE {WHERE}"
+    else:
+        print(f"{total - distinct:,} duplicate images; resolving by last_synced_at then source page")
+        src = f"""SELECT {col_list} FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY county, dataset_type, feature_key
                                          ORDER BY last_synced_at DESC, src_page DESC) AS rn
-            FROM rec.features WHERE {WHERE}
-        ) WHERE rn = 1""").rowcount
+            FROM rec.features WHERE {WHERE}) WHERE rn = 1"""
+    # INSERT OR IGNORE guards the unique (county, dataset_type, feature_key)
+    # and the id primary key against anything already in the target.
+    n = target.execute(f"INSERT OR IGNORE INTO features ({col_list}) {src}").rowcount
     target.commit()
     print(f"inserted {n:,} feature rows in {(time.time() - t0) / 60:.1f} min")
     target.execute("DETACH DATABASE rec")
