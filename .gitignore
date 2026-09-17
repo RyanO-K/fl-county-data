@@ -10,3 +10,4 @@ logs/
 scripts/sources.pilot5.backup.json
 scripts/sources_batch_a.json
 scripts/sources_batch_b.json
+tests/.tmp/
