@@ -14,6 +14,7 @@ fl-county-data/
   scripts/
     sources.json         - verified source URLs + field mappings, one block per county
     etl.py                - main sync script (run this daily)
+    recordings.py         - clerk official-records index feeds (Hillsborough, Hernando) -> recorded instruments linked to parcels
     validate_sources.py   - quick smoke test against all configured sources
   data/
     fl_county_data.db     - SQLite output database (now stored at D:l-county-data\data\; override with FL_COUNTY_DB)
@@ -262,9 +263,34 @@ Layers whose `maxRecordCount` is under 1000 are fetched by object-id batches (`r
 - `"key_transform"`: named reordering applied to the normalized key before the DOR join (`swap_sec_rng` for Orange, whose PARCEL field is range-township-section while the state roll is section-township-range). `feature_key` keeps the county's spelling; only `feature_key_norm` is transformed.
 - `"exclude_fields"`: extra raw attribute keys to drop on ingest (owner/mailing fields are dropped automatically).
 
-### Privacy: owner and mailing fields are not stored
+### Owners and recorded instruments (local database only)
 
-Raw layer attributes are kept in `attributes_json`, but any key starting with `OWN`, `OWNER`, `MAIL`, `FIDU` or `TAXPAYER` (any spelling, e.g. `OWNERNAME`, `OwnerAddress1`, `MAILADD`), the DOR/FGDL mailing shorthand (`MCITY`, `MZIP`, `OADDR1` ...), and staff/applicant name fields (`EDITOR_NAME`, `CASE_CONTACT`) are dropped on ingest (`etl.is_private_field`; `OWNTYPE`-style ownership-class keys are kept), and a source can list further keys under `"exclude_fields"` in `sources.json` (Polk's Property Appraiser layer excludes `NAME` and `MAIL_ADDR_*`). The statewide DOR values table never pulls owner columns.
+The statewide DOR pull now also fills `parcel_owners` (owner name, mailing
+address, state of domicile, last two deed references) for every parcel, and
+`scripts/recordings.py` loads county Clerk official-records index feeds into
+`recorded_instruments` / `instrument_parties`, linking them to parcels in
+`instrument_parcels` by clerk instrument number (exact) or owner name (skipped
+when a name matches more than 5 parcels in the county). Feeds today:
+Hillsborough (daily D/P files, ~2 months online) and Hernando (weekly CSV
+since 2024). Broward activates when `FL_BROWARD_FTP_USER` / `FL_BROWARD_FTP_PASS`
+are set (the clerk issues accounts: 954-831-4000); Lake, Palm Beach and
+Miami-Dade sell subscriptions and are not wired in. Neither feed carries a
+parcel number or, in practice, a mortgage amount (Hillsborough fills the
+consideration on 1-3 of ~150 mortgages a day; Hernando has no amount column), so
+the "Min/Max mortgage $" filter only matches instruments whose amount is known.
+
+`python scripts/dor_values.py --owners orange` loads one county's owners
+from its contiguous block of the statewide layer in about five minutes (Orange
+is first); `--owners all` does the whole state. `python scripts/recordings.py
+[county]` loads new feed files; `etl.py` runs both daily (`--no-recordings`
+skips the feeds).
+
+These five tables (`parcel_owners`, `recorded_instruments`,
+`instrument_parties`, `instrument_parcels`, `recording_files`) are never
+copied into the public demo database (`make_demo_db.schema_statements`), and
+the demo app hides the filters and popup sections. Raw county-layer owner
+and mailing attributes are still dropped from `attributes_json`
+(`etl.is_private_field`): the DOR roll is the one source of owner data.
 
 ### Map rendering (uncapped)
 
