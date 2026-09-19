@@ -9,7 +9,21 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  <script>
+    // Apply the remembered "sidebar collapsed" state before first paint so the
+    // rail does not flash in and out on load (app.js re-syncs the buttons).
+    try {
+      if (localStorage.getItem("flcd.sidebar.hidden") === "1" && window.innerWidth >= 900) {
+        document.body.classList.add("sidebar-hidden");
+      }
+    } catch (e) { /* storage unavailable: start open */ }
+  </script>
   <header class="topbar">
+    <button type="button" id="sidebar-toggle" class="sidebar-toggle" aria-controls="sidebar" aria-expanded="true" title="Show or hide the filters">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>
+      <span>Filters</span>
+      <span class="badge" id="sidebar-toggle-count" hidden></span>
+    </button>
     <h1>FL County Data Explorer</h1>
     <nav class="main-tabs" aria-label="Main sections">
       <button type="button" class="main-tab active" data-main-tab="browse">Browse Data</button>
@@ -29,6 +43,206 @@
   </div>
   {% endif %}
 
+  <div class="layout">
+  <aside id="sidebar" class="sidebar" aria-label="Filters">
+    <div class="sidebar-head">
+      <h2>Filters</h2>
+      <button type="button" id="sidebar-close" class="sidebar-close" aria-controls="sidebar" aria-expanded="true" title="Hide filters">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <span class="sr-only">Hide filters</span>
+      </button>
+    </div>
+
+    <form id="filters" class="filters" data-sidebar-for="browse" data-chips="browse-chips">
+      <div class="filters-body">
+        <section class="fgroup" data-group="browse.location">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-location">
+            <span class="fgroup-title">Location</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-browse-location">
+            <label><span class="fl">County</span>
+              <select id="f-county"><option value="">All</option></select>
+            </label>
+            <label><span class="fl">Dataset</span>
+              <select id="f-dataset"><option value="">All</option></select>
+            </label>
+          </div>
+        </section>
+
+        <section class="fgroup" data-group="browse.land">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-land">
+            <span class="fgroup-title">Land</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-browse-land">
+            <label><span class="fl">Zoning code</span>
+              <select id="f-zoning"><option value="">All</option></select>
+            </label>
+            <label><span class="fl">Land use code</span>
+              <select id="f-landuse"><option value="">All</option></select>
+            </label>
+            <div class="frange" role="group" aria-labelledby="fl-acre">
+              <span class="fl" id="fl-acre">Acreage</span>
+              <div class="frange-inputs">
+                <input type="number" step="any" min="0" id="f-min-acre" placeholder="min" aria-label="Min acreage" data-chip="Min acreage">
+                <span class="frange-sep" aria-hidden="true">to</span>
+                <input type="number" step="any" min="0" id="f-max-acre" placeholder="max" aria-label="Max acreage" data-chip="Max acreage">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="fgroup recording-filters" data-group="browse.recorded" {% if demo %}hidden{% endif %}>
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-recorded">
+            <span class="fgroup-title">Recorded instruments</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-browse-recorded">
+            <label><span class="fl">Mortgage on file</span>
+              <select id="f-has-mtg" title="Parcels with a linked mortgage in the clerk index feeds; the amount is known only where the feed carries it">
+                <option value="">Any</option>
+                <option value="1">Has a mortgage</option>
+                <option value="amount">Has a mortgage with known amount</option>
+              </select>
+            </label>
+            <label><span class="fl">Mortgage since</span>
+              <input type="date" id="f-mtg-since" title="Parcels with a linked mortgage recorded on or after this date (clerk index feeds)">
+            </label>
+            <div class="frange" role="group" aria-labelledby="fl-mtg">
+              <span class="fl" id="fl-mtg">Mortgage amount ($)</span>
+              <div class="frange-inputs">
+                <input type="number" step="any" min="0" id="f-mtg-min" placeholder="min" aria-label="Min mortgage $" data-chip="Min mortgage $" title="Mortgage amount is only known where the clerk index carries it">
+                <span class="frange-sep" aria-hidden="true">to</span>
+                <input type="number" step="any" min="0" id="f-mtg-max" placeholder="max" aria-label="Max mortgage $" data-chip="Max mortgage $">
+              </div>
+            </div>
+            <p class="fhint">Amounts are rarely known in the feeds.</p>
+            <label class="check"><input type="checkbox" id="f-lien" data-chip="Open lien / lis pendens"> <span class="fl">Open lien / lis pendens</span></label>
+          </div>
+        </section>
+
+        <section class="fgroup" data-group="browse.search">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-search">
+            <span class="fgroup-title">Search</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-browse-search">
+            <input type="search" id="f-q" placeholder="Description, code or parcel id" aria-label="Search" data-chip="Search">
+          </div>
+        </section>
+      </div>
+
+      <div class="filters-actions">
+        <button type="submit" class="btn-primary">Apply filters <span class="badge badge-count" data-count-badge hidden></span></button>
+        <button type="button" id="f-reset" class="btn-ghost">Reset</button>
+      </div>
+    </form>
+
+    <form id="values-filters" class="filters" data-sidebar-for="values" data-chips="values-chips" hidden>
+      <div class="filters-body">
+        <section class="fgroup" data-group="values.location">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-values-location">
+            <span class="fgroup-title">Location</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-values-location">
+            <label><span class="fl">County</span>
+              <select id="v-county"><option value="">All</option></select>
+            </label>
+            <label><span class="fl">DOR use code</span>
+              <select id="v-usecode"><option value="">All</option></select>
+            </label>
+          </div>
+        </section>
+
+        <section class="fgroup" data-group="values.value">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-values-value">
+            <span class="fgroup-title">Value ranges</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-values-value">
+            <div class="frange" role="group" aria-labelledby="fl-jv">
+              <span class="fl" id="fl-jv">Just value ($)</span>
+              <div class="frange-inputs">
+                <input type="number" step="any" min="0" id="v-min-jv" placeholder="min" aria-label="Min just value" data-chip="Min just value">
+                <span class="frange-sep" aria-hidden="true">to</span>
+                <input type="number" step="any" min="0" id="v-max-jv" placeholder="max" aria-label="Max just value" data-chip="Max just value">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="fgroup" data-group="values.sale">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-values-sale">
+            <span class="fgroup-title">Sale</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-values-sale">
+            <div class="frange" role="group" aria-labelledby="fl-sale">
+              <span class="fl" id="fl-sale">Last sale price ($)</span>
+              <div class="frange-inputs">
+                <input type="number" step="any" min="0" id="v-min-sale" placeholder="min" aria-label="Min last sale" data-chip="Min last sale">
+                <span class="frange-sep" aria-hidden="true">to</span>
+                <input type="number" step="any" min="0" id="v-max-sale" placeholder="max" aria-label="Max last sale" data-chip="Max last sale">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="fgroup" data-group="values.search">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-values-search">
+            <span class="fgroup-title">Search</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-values-search">
+            <input type="search" id="v-q" placeholder="Parcel id or site address" aria-label="Search" data-chip="Search">
+          </div>
+        </section>
+
+        <section class="fgroup" data-group="values.sort" data-not-filter>
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-values-sort">
+            <span class="fgroup-title">Sort</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-values-sort">
+            <label><span class="fl">Sort by</span>
+              <select id="v-sort">
+                <option value="just_value">Just value</option>
+                <option value="land_value">Land value</option>
+                <option value="sale_price">Last sale price</option>
+                <option value="sale_year">Last sale date</option>
+                <option value="parcel_id">Parcel ID</option>
+              </select>
+            </label>
+            <label><span class="fl">Direction</span>
+              <select id="v-dir">
+                <option value="desc">High to low</option>
+                <option value="asc">Low to high</option>
+              </select>
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <div class="filters-actions">
+        <button type="submit" class="btn-primary">Apply filters <span class="badge badge-count" data-count-badge hidden></span></button>
+        <button type="button" id="v-reset" class="btn-ghost">Reset</button>
+      </div>
+    </form>
+  </aside>
+  <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
+
+  <main class="content">
   <section id="status-panel" class="panel" data-main-panel="status" hidden>
     <div class="panel-header">
       <h2>Pipeline Status</h2>
@@ -72,50 +286,7 @@
       </div>
     </div>
 
-    <form id="filters" class="filters">
-      <label>County
-        <select id="f-county"><option value="">All</option></select>
-      </label>
-      <label>Dataset
-        <select id="f-dataset"><option value="">All</option></select>
-      </label>
-      <label>Zoning code
-        <select id="f-zoning"><option value="">All</option></select>
-      </label>
-      <label>Land use code
-        <select id="f-landuse"><option value="">All</option></select>
-      </label>
-      <label>Min acreage
-        <input type="number" step="any" id="f-min-acre" placeholder="0">
-      </label>
-      <label>Max acreage
-        <input type="number" step="any" id="f-max-acre" placeholder="any">
-      </label>
-      <span class="recording-filters" {% if demo %}hidden{% endif %}>
-        <label>Mortgage on file
-          <select id="f-has-mtg" title="Parcels with a linked mortgage in the clerk index feeds; the amount is known only where the feed carries it">
-            <option value="">Any</option>
-            <option value="1">Has a mortgage</option>
-            <option value="amount">Has a mortgage with known amount</option>
-          </select>
-        </label>
-        <label>Mortgage since
-          <input type="date" id="f-mtg-since" title="Parcels with a linked mortgage recorded on or after this date (clerk index feeds)">
-        </label>
-        <label>Min mortgage $
-          <input type="number" step="any" id="f-mtg-min" placeholder="any" title="Mortgage amount is only known where the clerk index carries it">
-        </label>
-        <label>Max mortgage $
-          <input type="number" step="any" id="f-mtg-max" placeholder="any">
-        </label>
-        <label class="check"><input type="checkbox" id="f-lien"> Open lien / lis pendens</label>
-      </span>
-      <label class="grow">Search
-        <input type="text" id="f-q" placeholder="zoning / land use description, code, parcel id...">
-      </label>
-      <button type="submit">Apply filters</button>
-      <button type="button" id="f-reset">Reset</button>
-    </form>
+    <div id="browse-chips" class="chips" aria-label="Active filters" hidden></div>
 
     <div class="view-toggle">
       <button type="button" class="tab" data-view="table">Table</button>
@@ -161,9 +332,9 @@
     </div>
 
     <div id="view-map">
-      <p class="hint" id="map-hint">Select a county and dataset above and click "Apply filters" to render matching polygons (capped for performance).</p>
+      <p class="hint" id="map-hint">Pick a county and dataset in the filters and click "Apply filters" to render matching polygons (capped for performance).</p>
       <div id="map"></div>
-      <p class="map-resize-hint">Drag the bottom-right corner of the map to resize it. Dashed lines are county boundaries (U.S. Census); hover one to see its name. Pick a county in the filters above to load it.</p>
+      <p class="map-resize-hint">Drag the bottom-right corner of the map to resize it. Dashed lines are county boundaries (U.S. Census); hover one to see its name. Pick a county in the filters to load it.</p>
       <div id="map-legend" class="legend"></div>
     </div>
   </section>
@@ -177,45 +348,7 @@
       </div>
     </div>
 
-    <form id="values-filters" class="filters">
-      <label>County
-        <select id="v-county"><option value="">All</option></select>
-      </label>
-      <label>DOR use code
-        <select id="v-usecode"><option value="">All</option></select>
-      </label>
-      <label>Min just value
-        <input type="number" step="any" id="v-min-jv" placeholder="0">
-      </label>
-      <label>Max just value
-        <input type="number" step="any" id="v-max-jv" placeholder="any">
-      </label>
-      <label>Min last sale
-        <input type="number" step="any" id="v-min-sale" placeholder="0">
-      </label>
-      <label>Max last sale
-        <input type="number" step="any" id="v-max-sale" placeholder="any">
-      </label>
-      <label class="grow">Search
-        <input type="text" id="v-q" placeholder="parcel id or site address...">
-      </label>
-      <label>Sort by
-        <select id="v-sort">
-          <option value="just_value">Just value</option>
-          <option value="land_value">Land value</option>
-          <option value="sale_price">Last sale price</option>
-          <option value="sale_year">Last sale date</option>
-          <option value="parcel_id">Parcel ID</option>
-        </select>
-      </label>
-      <label>Direction
-        <select id="v-dir">
-          <option value="desc">High to low</option>
-          <option value="asc">Low to high</option>
-        </select>
-      </label>
-      <button type="submit">Apply</button>
-    </form>
+    <div id="values-chips" class="chips" aria-label="Active filters" hidden></div>
 
     <div class="table-wrap">
       <table id="values-table">
@@ -254,6 +387,8 @@
       </label>
     </div>
   </section>
+  </main>
+  </div>
 
   <div id="detail-modal" class="modal" hidden>
     <div class="modal-content">

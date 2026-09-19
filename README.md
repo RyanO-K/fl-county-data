@@ -305,7 +305,7 @@ and mailing attributes are still dropped from `attributes_json`
 
 ### County outlines and resizable maps
 
-- Both maps (the Browse Data map and the mini map in the row detail popup) draw all 67 county boundaries as dashed lines. The selected county is highlighted in blue. At state zoom each county is labelled; hovering shows the full name. Clicking a lot opens the same detail panel as clicking its table row (mini map, values, source attributes). Outlines are display only - a hover label names the county under the cursor, but clicking empty ground does nothing; change counties with the County filter above the map.
+- Both maps (the Browse Data map and the mini map in the row detail popup) draw all 67 county boundaries as dashed lines. The selected county is highlighted in blue. At state zoom each county is labelled; hovering shows the full name. Clicking a lot opens the same detail panel as clicking its table row (mini map, values, source attributes). Outlines are display only - a hover label names the county under the cursor, but clicking empty ground does nothing; change counties with the County filter in the left sidebar.
 - Boundaries come from the U.S. Census Bureau TIGERweb `State_County` service (Counties layer, generalized to ~50 m) and are stored in `scripts/static/fl_counties.geojson`. Regenerate with `python scripts/fetch_county_boundaries.py` (rarely needed).
 - Drag the bottom-right corner of either map to change its height; the map re-lays itself out automatically. Fullscreen still works via the panel button.
 

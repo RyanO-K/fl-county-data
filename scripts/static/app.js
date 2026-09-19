@@ -947,7 +947,7 @@ function clearMap() {
   mapLoadedKey = null;
   document.getElementById("map-legend").innerHTML = "";
   document.getElementById("map-hint").textContent =
-    'Select a county and dataset above and click "Apply filters" to render matching polygons (capped for performance).';
+    'Pick a county and dataset in the filters and click "Apply filters" to render matching polygons (capped for performance).';
 }
 
 /* Map rendering is uncapped: every matching feature is drawn. To keep the
@@ -1086,7 +1086,7 @@ async function loadMap() {
     clearMap();
     setMapProgress(false);
     hideMapNotice();
-    hint.textContent = "Pick a county and dataset above, then click \"Apply filters\" - features render per county to keep it fast.";
+    hint.textContent = "Pick a county and dataset in the filters, then click \"Apply filters\" - features render per county to keep it fast.";
     return;
   }
   hint.textContent = "Loading...";
@@ -1413,6 +1413,13 @@ function initValuesEvents() {
     await loadValuesTable(false);
   });
 
+  document.getElementById("v-reset").addEventListener("click", async () => {
+    document.getElementById("values-filters").reset();
+    await loadValuesUseCodes();
+    readValuesFiltersFromForm();
+    await loadValuesTable(false);
+  });
+
   document.getElementById("v-page-prev").addEventListener("click", async () => {
     if (vstate.page > 1) { vstate.page -= 1; await loadValuesTable(false); }
   });
@@ -1513,6 +1520,9 @@ function initEvents() {
 
   initValuesEvents();
   initStatusEvents();
+  // After the form handlers above: the sidebar listens on the same submit and
+  // reset events and must run once the filter state has been read.
+  initSidebar();
 
   document.querySelectorAll(".fullscreen-btn").forEach((btn) => {
     btn.addEventListener("click", () => toggleFullscreen(btn.dataset.fullscreenTarget));
@@ -1565,6 +1575,236 @@ async function init() {
 }
 
 /* ---------------------------------------------------------------------
+ * Filter sidebar
+ *
+ * The left rail holds one filter form per main tab (Browse, Parcel Values)
+ * and shows whichever tab is active; Pipeline Status has nothing to filter,
+ * so the rail is removed there. On wide viewports the rail can be collapsed
+ * (remembered in localStorage); under 900px it is a slide-over drawer.
+ * Sections collapse independently and remember that too. The form ids and
+ * field ids are unchanged, so readFiltersFromForm() and friends above do
+ * not know or care about any of this.
+ * ------------------------------------------------------------------- */
+const SIDEBAR_HIDDEN_KEY = "flcd.sidebar.hidden";
+const SIDEBAR_GROUPS_KEY = "flcd.sidebar.groups";
+const narrowViewport = window.matchMedia("(max-width: 899px)");
+
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* private mode / quota: just don't remember */ }
+}
+
+function sidebarIsOpen() {
+  return narrowViewport.matches
+    ? document.body.classList.contains("drawer-open")
+    : !document.body.classList.contains("sidebar-hidden");
+}
+
+function setSidebarOpen(open) {
+  const body = document.body;
+  const scrim = document.getElementById("sidebar-scrim");
+  if (narrowViewport.matches) {
+    body.classList.toggle("drawer-open", open);
+    scrim.hidden = !open;
+    if (open) document.getElementById("sidebar-close").focus();
+  } else {
+    body.classList.toggle("sidebar-hidden", !open);
+    storageSet(SIDEBAR_HIDDEN_KEY, open ? "0" : "1");
+  }
+  document.querySelectorAll("[aria-controls=sidebar]").forEach((b) => {
+    b.setAttribute("aria-expanded", String(open));
+  });
+  updateFilterCounts();
+  // The map's box changes width when the rail comes or goes, and Leaflet only
+  // redraws its tiles once told the size changed (same as the view toggle).
+  if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 60);
+}
+
+/* Show the filter form that belongs to the active main tab. */
+function syncSidebarTab(name) {
+  document.querySelectorAll("[data-sidebar-for]").forEach((el) => {
+    el.hidden = el.dataset.sidebarFor !== name;
+  });
+  document.body.classList.toggle("no-sidebar", name === "status");
+  document.getElementById("sidebar-toggle").disabled = name === "status";
+  if (name === "status" && narrowViewport.matches) setSidebarOpen(false);
+  updateFilterCounts();
+}
+
+function activeFilterForm() {
+  return document.querySelector("form.filters[data-sidebar-for]:not([hidden])");
+}
+
+/* Fields that count as filters: everything except the sort controls
+ * (data-not-filter) and anything hidden, e.g. the recording section in demo. */
+function filterFields(root) {
+  return [...root.querySelectorAll("select, input")].filter((el) =>
+    !el.closest("[data-not-filter]") && !el.closest("[hidden]"));
+}
+function fieldIsActive(el) {
+  return el.type === "checkbox" ? el.checked : el.value !== "";
+}
+
+/* Badge on Apply + the topbar button, and the dot on each section header,
+ * all reflect what is typed in the form right now. */
+function updateFilterCounts() {
+  const form = activeFilterForm();
+  let total = 0;
+  if (form) {
+    form.querySelectorAll(".fgroup").forEach((g) => {
+      const n = filterFields(g).filter(fieldIsActive).length;
+      g.classList.toggle("has-active", n > 0);
+      total += n;
+    });
+    const badge = form.querySelector("[data-count-badge]");
+    badge.textContent = String(total);
+    badge.hidden = total === 0;
+  }
+  const toggleBadge = document.getElementById("sidebar-toggle-count");
+  toggleBadge.textContent = String(total);
+  toggleBadge.hidden = total === 0 || sidebarIsOpen();
+}
+
+function chipLabel(el) {
+  if (el.dataset.chip) return el.dataset.chip;
+  const label = el.closest("label");
+  const fl = label && label.querySelector(".fl");
+  return fl ? fl.textContent.trim() : el.id;
+}
+function chipValue(el) {
+  if (el.type === "checkbox") return null;
+  if (el.tagName === "SELECT") {
+    const opt = el.options[el.selectedIndex];
+    return opt ? opt.text : el.value;
+  }
+  if (el.type === "number") {
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n.toLocaleString() : el.value;
+  }
+  return el.value;
+}
+function clearField(el) {
+  if (el.type === "checkbox") el.checked = false; else el.value = "";
+  // County selects drive dependent dropdowns through their change handlers.
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function submitForm(form) {
+  if (typeof form.requestSubmit === "function") form.requestSubmit();
+  else form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+}
+
+/* Removable chips above the results: a snapshot of the filters that were
+ * applied, taken on submit/reset so the chips never drift from the table. */
+function renderChips(form) {
+  const box = document.getElementById(form.dataset.chips);
+  if (!box) return;
+  const active = filterFields(form).filter(fieldIsActive);
+  box.innerHTML = "";
+  box.hidden = active.length === 0;
+  if (!active.length) return;
+  for (const el of active) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    const v = chipValue(el);
+    chip.innerHTML = v === null
+      ? `<b>${esc(chipLabel(el))}</b>`
+      : `${esc(chipLabel(el))}: <b>${esc(v)}</b>`;
+    const x = document.createElement("button");
+    x.type = "button";
+    x.innerHTML = "&times;";
+    x.title = "Remove this filter";
+    x.setAttribute("aria-label", `Remove filter: ${chipLabel(el)}`);
+    x.addEventListener("click", () => { clearField(el); submitForm(form); });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  }
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "chips-clear";
+  clear.textContent = "Clear all";
+  clear.addEventListener("click", () => form.querySelector(".btn-ghost").click());
+  box.appendChild(clear);
+}
+
+function initFilterGroups() {
+  let collapsed = {};
+  try { collapsed = JSON.parse(storageGet(SIDEBAR_GROUPS_KEY) || "{}") || {}; } catch (e) { collapsed = {}; }
+  document.querySelectorAll(".fgroup").forEach((group) => {
+    const head = group.querySelector(".fgroup-head");
+    const key = group.dataset.group;
+    if (collapsed[key]) head.setAttribute("aria-expanded", "false");
+    head.addEventListener("click", () => {
+      const open = head.getAttribute("aria-expanded") !== "true";
+      head.setAttribute("aria-expanded", String(open));
+      if (open) delete collapsed[key]; else collapsed[key] = 1;
+      storageSet(SIDEBAR_GROUPS_KEY, JSON.stringify(collapsed));
+    });
+  });
+}
+
+function initSidebar() {
+  initFilterGroups();
+  const sidebar = document.getElementById("sidebar");
+  const toggle = document.getElementById("sidebar-toggle");
+  const scrim = document.getElementById("sidebar-scrim");
+
+  toggle.addEventListener("click", () => setSidebarOpen(!sidebarIsOpen()));
+  document.getElementById("sidebar-close").addEventListener("click", () => {
+    setSidebarOpen(false);
+    toggle.focus();
+  });
+  scrim.addEventListener("click", () => setSidebarOpen(false));
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && narrowViewport.matches &&
+        document.body.classList.contains("drawer-open") &&
+        document.getElementById("detail-modal").hidden) {
+      setSidebarOpen(false);
+      toggle.focus();
+    }
+  });
+
+  // Wide: restore the remembered collapsed state (an inline script in the
+  // template applied it before first paint; this keeps the buttons in sync).
+  // Narrow: the drawer always starts closed.
+  const applyViewportMode = () => {
+    document.body.classList.remove("drawer-open");
+    scrim.hidden = true;
+    if (!narrowViewport.matches) {
+      document.body.classList.toggle("sidebar-hidden", storageGet(SIDEBAR_HIDDEN_KEY) === "1");
+    }
+    const open = sidebarIsOpen();
+    document.querySelectorAll("[aria-controls=sidebar]").forEach((b) => {
+      b.setAttribute("aria-expanded", String(open));
+    });
+    updateFilterCounts();
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 60);
+  };
+  applyViewportMode();
+  if (narrowViewport.addEventListener) narrowViewport.addEventListener("change", applyViewportMode);
+  else narrowViewport.addListener(applyViewportMode);
+
+  sidebar.addEventListener("input", updateFilterCounts);
+  sidebar.addEventListener("change", updateFilterCounts);
+  document.querySelectorAll("form.filters").forEach((form) => {
+    form.addEventListener("submit", () => {
+      renderChips(form);
+      updateFilterCounts();
+      // Applying from the drawer: get out of the way so the results show.
+      if (narrowViewport.matches) setSidebarOpen(false);
+    });
+    // The reset handlers above clear the form synchronously before awaiting.
+    form.querySelector(".btn-ghost").addEventListener("click", () => {
+      renderChips(form);
+      updateFilterCounts();
+    });
+  });
+
+  syncSidebarTab(state.mainTab);
+}
+
+/* ---------------------------------------------------------------------
  * Main tabs + fullscreen
  * ------------------------------------------------------------------- */
 function setMainTab(name) {
@@ -1575,6 +1815,7 @@ function setMainTab(name) {
   document.querySelectorAll("[data-main-panel]").forEach((p) => {
     p.hidden = p.dataset.mainPanel !== name;
   });
+  syncSidebarTab(name);
   if (name === "browse" && state.view === "map" && leafletMap) {
     setTimeout(() => leafletMap.invalidateSize(), 50);
   }

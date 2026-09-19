@@ -13,6 +13,12 @@
   --unknown-bg: #f1f5f9;
   --unknown: #475569;
   --highlight: #fef3c7;
+  --accent-soft: #e8effd;
+  --topbar-h: 52px;
+  --sidebar-w: 280px;
+  --sidebar-bg: #fbfcfd;
+  --control-h: 32px;
+  --focus: 0 0 0 3px rgba(37, 99, 235, .25);
 }
 
 * { box-sizing: border-box; }
@@ -24,15 +30,50 @@ body {
   color: var(--text);
 }
 
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.icon { width: 16px; height: 16px; flex: none; }
+
+/* The topbar stays pinned so the sidebar can sit directly under it and share
+ * the same sticky offset. z-index is above the Leaflet chrome (<= 1200) and
+ * below the detail modal (2000). */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1300;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 24px;
+  gap: 18px;
+  min-height: var(--topbar-h);
+  padding: 0 20px 0 12px;
   background: #101828;
   color: #fff;
 }
-.topbar h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+.topbar h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
+.topbar-right { margin-left: auto; }
+
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 6px;
+  background: transparent;
+  color: #e2e8f0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sidebar-toggle:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.sidebar-toggle[aria-expanded="true"] { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .28); color: #fff; }
+.sidebar-toggle:focus-visible, .main-tab:focus-visible, .fullscreen-btn:focus-visible, .tab:focus-visible,
+.pager button:focus-visible, .chip button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
 
 .main-tabs { display: flex; gap: 4px; }
 .main-tab {
@@ -83,7 +124,7 @@ body {
 
 .panel {
   background: var(--panel-bg);
-  margin: 18px 24px;
+  margin: 16px 20px;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px 20px;
@@ -190,46 +231,216 @@ td.status-badge span, .status-tag {
   100% { background-color: transparent; }
 }
 
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: end;
-  margin-bottom: 14px;
-}
-.filters label {
+/* ---------------------------------------------------------------------
+ * Layout: filter sidebar on the left, panels fill the rest.
+ *
+ * The sidebar is sticky under the topbar and scrolls on its own; the page
+ * keeps a single document scrollbar for the content. On narrow viewports
+ * (< 900px) the same element becomes a slide-over drawer, opened by the
+ * "Filters" button in the topbar and closed by the scrim, the back arrow
+ * or Escape. body.sidebar-hidden collapses the rail on wide viewports;
+ * body.drawer-open slides it in on narrow ones; body.no-sidebar removes it
+ * altogether (Pipeline Status has nothing to filter).
+ * ------------------------------------------------------------------- */
+.layout { display: flex; align-items: flex-start; min-height: calc(100vh - var(--topbar-h)); }
+.content { flex: 1 1 auto; min-width: 0; }
+
+.sidebar {
+  position: sticky;
+  top: var(--topbar-h);
+  flex: 0 0 var(--sidebar-w);
+  width: var(--sidebar-w);
+  height: calc(100vh - var(--topbar-h));
   display: flex;
   flex-direction: column;
-  font-size: 11px;
-  color: var(--text-muted);
-  gap: 4px;
-  text-transform: uppercase;
-  letter-spacing: .03em;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
 }
-.filters label.grow { flex: 1 1 240px; }
+.sidebar-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-head h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.sidebar-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.sidebar-close:hover { background: #eef2f6; color: var(--text); }
+.sidebar-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sidebar-scrim { display: none; }
+
+body.sidebar-hidden .sidebar, body.no-sidebar .sidebar { display: none; }
+/* Pipeline Status: the button stays put (so the title does not jump between
+ * tabs) but reads as unavailable. */
+.sidebar-toggle:disabled { opacity: .45; cursor: default; background: transparent; border-color: rgba(255, 255, 255, .12); }
+
+/* The form fills the rail: sections scroll in the middle, the action row is
+ * pinned to the bottom. */
+.filters { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.filters[hidden] { display: none; }
+.filters-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+
+.fgroup { border-bottom: 1px solid var(--border); }
+.fgroup[hidden] { display: none; }
+.fgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.fgroup-head:hover { background: #f1f4f8; }
+.fgroup-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fgroup-title { flex: 1 1 auto; }
+.fgroup-dot {
+  display: none;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+}
+.fgroup.has-active .fgroup-dot { display: inline-block; }
+.fgroup-head .chevron { color: var(--text-muted); transition: transform .15s ease; }
+.fgroup-head[aria-expanded="false"] .chevron { transform: rotate(-90deg); }
+.fgroup-body { display: flex; flex-direction: column; gap: 9px; padding: 0 16px 13px; }
+.fgroup-head[aria-expanded="false"] + .fgroup-body { display: none; }
+
+.filters label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fl { font-size: 12px; font-weight: 500; color: var(--text-muted); line-height: 1.3; }
 .filters select, .filters input {
-  padding: 7px 8px;
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
-  min-width: 130px;
   background: #fff;
   color: var(--text);
-}
-.filters input[type=number] { min-width: 90px; }
-.filters button {
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #fff;
+  font: inherit;
   font-size: 13px;
-  cursor: pointer;
-  height: 34px;
 }
-.filters button:hover { background: var(--accent-dark); }
-.filters #f-reset { background: #fff; color: var(--text); border-color: var(--border); }
-.filters #f-reset:hover { background: #f1f5f9; }
+.filters select { padding-right: 4px; }
+.filters input::placeholder { color: #9aa5b1; }
+.filters select:hover, .filters input:hover { border-color: #c5ced8; }
+.filters select:focus-visible, .filters input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.filters input[type=search]::-webkit-search-cancel-button { cursor: pointer; }
+
+.frange { display: flex; flex-direction: column; gap: 4px; }
+.frange-inputs { display: flex; align-items: center; gap: 6px; }
+.frange-inputs input { flex: 1 1 0; min-width: 0; }
+.frange-sep { flex: none; font-size: 12px; color: var(--text-muted); }
+.frow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fhint { margin: -4px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--text-muted); }
+
+.filters label.check { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; }
+.filters label.check .fl { color: var(--text); font-weight: 400; font-size: 13px; }
+.filters input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.filters input[type=checkbox]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none; }
+
+.filters-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+.filters-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.filters-actions .btn-primary { flex: 1 1 auto; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.filters-actions .btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.filters-actions .btn-ghost { flex: none; border: 1px solid var(--border); background: #fff; color: var(--text); font-weight: 500; }
+.filters-actions .btn-ghost:hover { background: #f1f5f9; }
+.filters-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 700; line-height: 1;
+}
+.badge[hidden] { display: none; }
+.btn-primary .badge { background: #fff; color: var(--accent); }
+.sidebar-toggle .badge { background: var(--accent); color: #fff; }
+
+/* Active-filter chips above the results. */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; }
+.chips[hidden] { display: none; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 4px 0 9px;
+  border: 1px solid #c7d7f8; border-radius: 999px;
+  background: var(--accent-soft); color: #1e3a8a;
+  font-size: 12px; line-height: 1; white-space: nowrap;
+}
+.chip b { font-weight: 600; }
+.chip button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: #1e3a8a; cursor: pointer; font-size: 14px; line-height: 1;
+}
+.chip button:hover { background: rgba(37, 99, 235, .15); }
+.chips .chips-clear {
+  height: 26px; padding: 0 8px; border: 0; background: transparent;
+  color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; border-radius: 6px;
+}
+.chips .chips-clear:hover { color: var(--text); background: #f1f5f9; }
+
+@media (max-width: 899px) {
+  .topbar { gap: 12px; padding: 0 14px 0 10px; }
+  .topbar h1 { font-size: 15px; }
+  .sidebar-toggle span:not(.badge) { display: none; }
+  .sidebar-toggle { padding: 0 8px; }
+  .main-tab { padding: 8px 12px; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    height: 100dvh;
+    width: min(var(--sidebar-w), calc(100vw - 48px));
+    z-index: 1400;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: none;
+  }
+  body.sidebar-hidden .sidebar { display: flex; }
+  body.drawer-open .sidebar { transform: none; box-shadow: 0 0 40px rgba(15, 23, 42, .3); }
+  .sidebar-scrim {
+    position: fixed; inset: 0; z-index: 1390;
+    background: rgba(15, 23, 42, .4);
+  }
+  body.drawer-open .sidebar-scrim { display: block; }
+  .sidebar-scrim[hidden] { display: none; }
+  body.drawer-open { overflow: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .fgroup-head .chevron { transition: none; }
+}
 
 .view-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
 .tab {
@@ -452,13 +663,7 @@ abbr.gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
 }
 .demo-banner a { color: #1d4ed8; }
 
-/* The recording filters are one wrapper so the demo can hide them all with a
- * single `hidden`, but they must still lay out as siblings of the other
- * filter labels inside the flex row -- hence display: contents. That author
- * rule outranks the browser's [hidden] { display: none }, so restate it. */
-.recording-filters { display: contents; }
+/* The recording filters are one sidebar section so the demo can hide them all
+ * with a single `hidden` (the demo database has no instrument tables). */
 .recording-filters[hidden] { display: none; }
-.filters label.check { flex-direction: row; align-items: center; gap: .4em; }
-/* .filters input sets min-width: 130px, which would stretch the checkbox. */
-.filters input[type=checkbox] { min-width: 0; width: auto; padding: 0; }
 .detail-table.instruments th { text-align: left; }
