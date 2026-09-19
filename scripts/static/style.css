@@ -102,15 +102,17 @@ body {
 }
 .fullscreen-btn:hover { background: #f1f5f9; }
 
-.panel:fullscreen {
-  margin: 0;
-  border: none;
-  border-radius: 0;
-  padding: 20px 28px;
+/* Fullscreen takes the whole layout (sidebar + active panel) so the filters
+ * stay reachable; the topbar is outside it, so the rail pins to the top. */
+.layout:fullscreen {
+  height: 100vh;
+  min-height: 100vh;
   overflow: auto;
-  background: var(--panel-bg);
+  background: var(--bg);
 }
-.panel:fullscreen #map { height: calc(100vh - 230px); }
+.layout:fullscreen .sidebar { top: 0; height: 100vh; }
+.layout:fullscreen .panel { margin: 0; border: none; border-radius: 0; padding: 20px 28px; }
+.layout:fullscreen #map { height: calc(100vh - 230px); }
 
 .pill {
   display: inline-block;

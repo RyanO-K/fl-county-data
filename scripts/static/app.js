@@ -1841,6 +1841,9 @@ function onFullscreenChange() {
     const isThis = active && active.id === btn.dataset.fullscreenTarget;
     btn.innerHTML = isThis ? "&#x2716; Exit fullscreen" : "&#x26F6; Fullscreen";
   });
+  // Fullscreen covers the whole layout: the topbar (and its Filters button)
+  // is outside it, so make sure the rail is showing when we enter.
+  if (active && document.body.classList.contains("sidebar-hidden")) setSidebarOpen(true);
   // The map container's box changes size going in/out of fullscreen, and
   // Leaflet only redraws its tiles once told the size changed.
   if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 100);
