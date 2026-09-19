@@ -121,6 +121,18 @@ def test_facets_concurrent_requests_compute_once(client, conn, monkeypatch):
     assert len(calls) == 1 and len(results) == 3 and results[0] == results[1] == results[2]
 
 
+def test_availability_counts_linked_features_per_county(client, conn):
+    import app as A
+    A._facets_cache.clear()
+    data = json.loads(client.get("/api/availability").data)
+    # A-1 has a mortgage with an amount and a lien; B-2 has nothing linked.
+    assert data["recordings"] == {
+        "hillsborough": {"mortgage": 1, "mortgage_amount": 1, "lien": 1, "datasets": {"parcels": 1}},
+    }
+    # No feature in a county with no feed at all.
+    assert "hernando" not in data["recordings"]
+
+
 def test_status_has_recordings_cell(client):
     data = json.loads(client.get("/api/status/counties").data)
     assert "recordings" in data["dataset_types"]

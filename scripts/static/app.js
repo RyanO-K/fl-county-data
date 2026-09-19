@@ -31,6 +31,7 @@ let leafletMap = null;
 let geoLayer = null;
 let colorCache = new Map();
 let combosCache = []; // from /api/counties
+let availability = null; // from /api/availability; null until loaded (or if unavailable)
 let mapLoadedKey = null; // filter params the map currently shows
 
 /* Parcel Values tab state. */
@@ -222,20 +223,135 @@ async function loadCombos() {
     counties.map((c) => `<option value="${c}">${pretty(c)}</option>`).join("");
   countySel.value = counties.includes(prevCounty) ? prevCounty : "";
 
-  refreshDatasetOptions();
+  applyAvailability();
 }
 
+/* Dataset dropdown lists every dataset type in the database; the ones the
+ * selected county lacks (or that no recorded instrument links to, when a
+ * recording filter is set) are greyed out rather than removed. */
 function refreshDatasetOptions() {
   const datasetSel = document.getElementById("f-dataset");
   const county = document.getElementById("f-county").value;
-  const relevant = county
-    ? combosCache.filter((c) => c.county === county)
-    : combosCache;
-  const datasets = [...new Set(relevant.map((c) => c.dataset_type))].sort();
+  const all = [...new Set(combosCache.map((c) => c.dataset_type))].sort();
+  const inCounty = new Set(combosCache.filter((c) => !county || c.county === county).map((c) => c.dataset_type));
+  const recDatasets = recFilterActive() ? recAvailableDatasets(county) : null;
   const prev = datasetSel.value;
   datasetSel.innerHTML = '<option value="">All</option>' +
-    datasets.map((d) => `<option value="${d}">${pretty(d)}</option>`).join("");
-  datasetSel.value = datasets.includes(prev) ? prev : "";
+    all.map((d) => {
+      const ok = inCounty.has(d) && (!recDatasets || recDatasets.has(d));
+      return `<option value="${d}"${ok ? "" : " disabled"}>${pretty(d)}</option>`;
+    }).join("");
+  const prevOpt = [...datasetSel.options].find((o) => o.value === prev);
+  datasetSel.value = prevOpt && !prevOpt.disabled ? prev : "";
+}
+
+/* ---- Greying out filters that would return nothing ----------------------
+ * Only choices that are certain to match zero rows are disabled: a county
+ * without the chosen dataset, a dataset the chosen county lacks, and the
+ * recorded-instrument filters for counties with no linked clerk instruments
+ * (per /api/availability). Ranges and free text are never greyed. */
+async function loadAvailability() {
+  try {
+    availability = await fetchJSON("/api/availability");
+  } catch (err) {
+    console.warn("availability unavailable:", err); // older server: nothing greys out
+    availability = null;
+  }
+  applyAvailability();
+}
+
+function recFilterActive() {
+  return !!(document.getElementById("f-has-mtg").value || document.getElementById("f-lien").checked ||
+    document.getElementById("f-mtg-since").value || document.getElementById("f-mtg-min").value ||
+    document.getElementById("f-mtg-max").value);
+}
+
+/* Which availability counters the current recording filters need to be > 0. */
+function recNeeds() {
+  const needs = new Set();
+  const mtg = document.getElementById("f-has-mtg").value;
+  if (mtg === "1" || document.getElementById("f-mtg-since").value) needs.add("mortgage");
+  if (mtg === "amount" || document.getElementById("f-mtg-min").value || document.getElementById("f-mtg-max").value) needs.add("mortgage_amount");
+  if (document.getElementById("f-lien").checked) needs.add("lien");
+  return needs;
+}
+
+/* Recording availability for one county, or summed over all counties. */
+function recStats(county) {
+  if (!availability) return null;
+  const rec = availability.recordings || {};
+  if (county) return rec[county] || { mortgage: 0, mortgage_amount: 0, lien: 0, datasets: {} };
+  const sum = { mortgage: 0, mortgage_amount: 0, lien: 0, datasets: {} };
+  for (const r of Object.values(rec)) {
+    sum.mortgage += r.mortgage; sum.mortgage_amount += r.mortgage_amount; sum.lien += r.lien;
+    for (const [d, n] of Object.entries(r.datasets)) sum.datasets[d] = (sum.datasets[d] || 0) + n;
+  }
+  return sum;
+}
+
+function recAvailableDatasets(county) {
+  const s = recStats(county);
+  return s ? new Set(Object.keys(s.datasets)) : null;
+}
+
+function countyMeetsNeeds(county, needs) {
+  if (!availability || needs.size === 0) return true;
+  const s = recStats(county);
+  return [...needs].every((k) => s[k] > 0);
+}
+
+/* Disable a control, clearing it so a greyed-out choice can't stay applied. */
+function setDisabled(el, disabled) {
+  if (el.disabled === disabled) return;
+  el.disabled = disabled;
+  if (disabled) {
+    if (el.type === "checkbox") el.checked = false;
+    else el.value = "";
+  }
+}
+
+function applyAvailability() {
+  const countySel = document.getElementById("f-county");
+  const datasetSel = document.getElementById("f-dataset");
+  refreshDatasetOptions();
+
+  // Counties: grey out those without the chosen dataset, and (with a recording
+  // filter set) those whose clerk feed can't satisfy it.
+  const dataset = datasetSel.value;
+  const needs = recNeeds();
+  const withDataset = new Set(combosCache.filter((c) => !dataset || c.dataset_type === dataset).map((c) => c.county));
+  for (const opt of countySel.options) {
+    if (!opt.value) continue;
+    opt.disabled = !withDataset.has(opt.value) || !countyMeetsNeeds(opt.value, needs);
+  }
+  if (countySel.value && countySel.options[countySel.selectedIndex].disabled) {
+    countySel.value = "";
+    refreshDatasetOptions();
+  }
+
+  // Recorded-instrument section for the selected county (or all counties).
+  const section = document.querySelector(".recording-filters");
+  const note = document.getElementById("rec-unavailable");
+  if (section && !section.hidden) {
+    const county = countySel.value;
+    const s = recStats(county);
+    const hasMtg = document.getElementById("f-has-mtg");
+    const none = !!s && Object.keys(s.datasets).length === 0;
+    section.classList.toggle("is-unavailable", none);
+    note.hidden = !none;
+    note.textContent = none ? `No clerk recordings are loaded for ${county ? pretty(county) : "any county"}.` : "";
+    const mtgOk = !s || s.mortgage > 0;
+    const amtOk = !s || s.mortgage_amount > 0;
+    hasMtg.querySelector('option[value="1"]').disabled = !mtgOk;
+    hasMtg.querySelector('option[value="amount"]').disabled = !amtOk;
+    if (hasMtg.selectedOptions[0] && hasMtg.selectedOptions[0].disabled) hasMtg.value = "";
+    setDisabled(hasMtg, !mtgOk);
+    setDisabled(document.getElementById("f-mtg-since"), !mtgOk);
+    setDisabled(document.getElementById("f-mtg-min"), !amtOk);
+    setDisabled(document.getElementById("f-mtg-max"), !amtOk);
+    setDisabled(document.getElementById("f-lien"), !(!s || s.lien > 0));
+  }
+  if (typeof updateFilterCounts === "function") updateFilterCounts();
 }
 
 let facetsSeq = 0; // guards against a slow, superseded facets response landing late
@@ -1504,9 +1620,13 @@ function setView(view) {
 }
 
 function initEvents() {
-  document.getElementById("f-county").addEventListener("change", () => {
-    refreshDatasetOptions();
-  });
+  // Re-evaluate what can still match whenever a choice that constrains the
+  // others changes (county <-> dataset, recording filters <-> county/dataset).
+  document.getElementById("f-county").addEventListener("change", applyAvailability);
+  document.getElementById("f-dataset").addEventListener("change", applyAvailability);
+  for (const id of ["f-has-mtg", "f-lien", "f-mtg-since", "f-mtg-min", "f-mtg-max"]) {
+    document.getElementById(id).addEventListener("change", applyAvailability);
+  }
 
   document.getElementById("filters").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -1518,7 +1638,7 @@ function initEvents() {
 
   document.getElementById("f-reset").addEventListener("click", async () => {
     document.getElementById("filters").reset();
-    refreshDatasetOptions();
+    applyAvailability();
     readFiltersFromForm();
     loadFacets(); // refreshes the code dropdowns in the background
     await loadFeatures(false);
@@ -1575,6 +1695,7 @@ async function init() {
   const statusReady = loadStatus();
   await loadSources();
   await loadCombos();
+  const availabilityReady = loadAvailability(); // greys out filters that can't match; never rejects
   // The code dropdowns fill in whenever the facet scan finishes; the table
   // and map don't depend on them, so don't hold the first render for it.
   const facetsReady = loadFacets();
@@ -1584,6 +1705,7 @@ async function init() {
   setView(state.view);
   await statusReady;
   await facetsReady;
+  await availabilityReady;
 
   // Live updates: poll status every 20s, and silently refresh the current
   // table page every 25s so new/changed rows and updated sync timestamps

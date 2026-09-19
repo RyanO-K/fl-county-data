@@ -342,6 +342,14 @@ body.sidebar-hidden .sidebar, body.no-sidebar .sidebar { display: none; }
 .filters select:focus-visible, .filters input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 .filters input[type=search]::-webkit-search-cancel-button { cursor: pointer; }
 
+/* Greyed-out filters: choices that would certainly return no rows for the
+ * current selection (see applyAvailability in app.js). */
+.filters select:disabled, .filters input:disabled { opacity: .55; background: #f1f5f9; cursor: not-allowed; }
+.filters option:disabled { color: #9aa5b1; }
+.filters label:has(> :disabled) .fl, .filters label.check:has(:disabled) .fl { color: #9aa5b1; }
+.fgroup.is-unavailable .fl { color: #9aa5b1; }
+.fhint-unavailable { margin: 0 0 2px; color: #b45309; }
+
 .frange { display: flex; flex-direction: column; gap: 4px; }
 .frange-inputs { display: flex; align-items: center; gap: 6px; }
 .frange-inputs input { flex: 1 1 0; min-width: 0; }

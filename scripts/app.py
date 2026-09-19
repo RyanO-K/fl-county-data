@@ -354,11 +354,49 @@ def compute_facets(conn, args):
     }
 
 
+def compute_availability(conn):
+    """Which recorded-instrument filters can match anything, per county: how
+    many features are linked to a mortgage, to a mortgage with a known amount,
+    and to a lien-type instrument, plus the dataset types those linked features
+    belong to. The UI greys out filters this says would certainly return
+    nothing; counts are upper bounds (a lien here may already be released)."""
+    out = {}
+    if not has_table(conn, "instrument_parcels"):
+        return {"recordings": out}
+    flags = ("SELECT ip.parcel_key, MAX(ri.category = 'mortgage') AS mtg, "
+             "MAX(ri.category = 'mortgage' AND ri.consideration IS NOT NULL) AS amt, "
+             "MAX(ri.category IN ('lien','lis_pendens','judgment')) AS lien "
+             "FROM recorded_instruments ri JOIN instrument_parcels ip "
+             "ON ip.county = ri.county AND ip.instrument_no = ri.instrument_no "
+             "WHERE ri.county = ? GROUP BY ip.parcel_key")
+    for (county,) in conn.execute("SELECT DISTINCT county FROM instrument_parcels").fetchall():
+        per = {"mortgage": 0, "mortgage_amount": 0, "lien": 0, "datasets": {}}
+        dtypes = [r[0] for r in conn.execute(
+            "SELECT DISTINCT dataset_type FROM features WHERE county = ?", (county,))]
+        for dt in dtypes:
+            n, mtg, amt, lien = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(m.mtg), 0), COALESCE(SUM(m.amt), 0), COALESCE(SUM(m.lien), 0) "
+                f"FROM ({flags}) m JOIN features f "
+                "ON f.county = ? AND f.dataset_type = ? AND f.feature_key_norm = m.parcel_key",
+                (county, county, dt)).fetchone()
+            if n:
+                per["datasets"][dt] = n
+                per["mortgage"] += mtg
+                per["mortgage_amount"] += amt
+                per["lien"] += lien
+        if per["datasets"]:
+            out[county] = per
+    return {"recordings": out}
+
+
 def cached_facets(conn, args):
-    """Memoized compute_facets. Concurrent callers for the same key (the
-    startup warm-up and the first page load, typically) share one computation
-    instead of each scanning the table."""
-    key = _facets_key(args)
+    return _cached(_facets_key(args), lambda: compute_facets(conn, args))
+
+
+def _cached(key, compute):
+    """Memoized compute() with the shared facets cache. Concurrent callers for
+    the same key (the startup warm-up and the first page load, typically) share
+    one computation instead of each scanning the table."""
     while True:
         with _facets_lock:
             hit = _facets_cache.get(key)
@@ -370,7 +408,7 @@ def cached_facets(conn, args):
                 break
         pending.wait()  # someone else is computing it; re-check the cache
     try:
-        data = compute_facets(conn, args)
+        data = compute()
         with _facets_lock:
             _facets_cache[key] = (time.time(), data)
     finally:
@@ -390,6 +428,7 @@ def warm_facets():
         for dt in ("", "parcels", "zoning", "land_use", "future_land_use"):
             args = {"dataset_type": dt} if dt else {}
             cached_facets(conn, args)
+        _cached("availability", lambda: compute_availability(conn))
         conn.close()
     except Exception as exc:  # noqa: BLE001
         print(f"facets warm-up failed: {exc}")
@@ -405,6 +444,14 @@ def api_facets():
     selection, to populate filter dropdowns with real values. Cached per
     filter combination for FACETS_TTL seconds."""
     return jsonify(cached_facets(get_db(), request.args))
+
+
+@app.route("/api/availability")
+def api_availability():
+    """Per-county counts telling the UI which recorded-instrument filters can
+    match anything (see compute_availability). Cached like the facets."""
+    conn = get_db()
+    return jsonify(_cached("availability", lambda: compute_availability(conn)))
 
 
 @app.route("/api/features")
