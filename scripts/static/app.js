@@ -25,6 +25,7 @@ const state = {
 };
 
 let lastFeaturesTotal = null;
+let lastFeaturesKey = null; // filter params lastFeaturesTotal was counted for
 let featureRowIndex = new Map(); // id -> {el, values}
 let statusRowIndex = new Map(); // county -> {el, cells} on the Pipeline Status table
 let leafletMap = null;
@@ -549,6 +550,7 @@ function renderFeaturesTable(data, isPoll) {
   document.getElementById("page-next").disabled = data.page >= data.total_pages;
 
   lastFeaturesTotal = data.total;
+  lastFeaturesKey = JSON.stringify(currentFilterParams());
 }
 
 async function loadFeatures(isPoll) {
@@ -1090,7 +1092,7 @@ function clearMap() {
   mapLoadedKey = null;
   document.getElementById("map-legend").innerHTML = "";
   document.getElementById("map-hint").textContent =
-    'Pick a county and dataset in the filters and click "Apply filters" to render matching polygons (capped for performance).';
+    'Pick a county in the filters and click "Apply filters" to render matching polygons; without a county the map renders once the filters match 5,000 features or fewer.';
 }
 
 /* Map rendering is uncapped: every matching feature is drawn. To keep the
@@ -1099,6 +1101,7 @@ function clearMap() {
  * short slices with a pause after each - a duty cycle that caps the render
  * at roughly half of one CPU core. When the cap engages we tell the user. */
 const MAP_CHUNK = 2000;      // rows per request
+const MAP_NO_COUNTY_MAX = 5000; // render without a county when the filtered pool is this small
 const RENDER_WORK_MS = 40;   // render budget per slice
 const RENDER_REST_MS = 40;   // pause after each slice (=> ~50% duty cycle)
 let mapRun = 0;              // generation token; bumping it cancels a run
@@ -1223,21 +1226,37 @@ function renderLegend(legendCodes) {
 async function loadMap() {
   const hint = document.getElementById("map-hint");
   const run = ++mapRun;
+  const params = currentFilterParams();
   if (!state.county) {
-    ensureMap();
-    await loadCountyBoundaries();
-    clearMap();
-    setMapProgress(false);
-    hideMapNotice();
-    hint.textContent = "Pick a county and dataset in the filters, then click \"Apply filters\" - features render per county to keep it fast.";
-    return;
+    // Without a county the map renders only when the filtered pool is small;
+    // a statewide draw of every parcel would never finish in the browser.
+    let total = lastFeaturesKey === JSON.stringify(params) ? lastFeaturesTotal : null;
+    if (total == null) {
+      try {
+        total = (await fetchJSON(`/api/features?${qs(Object.assign({}, params, { per_page: 1 }))}`)).total;
+      } catch (e) {
+        total = null;
+      }
+      if (run !== mapRun) return;
+    }
+    if (total == null || total > MAP_NO_COUNTY_MAX) {
+      ensureMap();
+      await loadCountyBoundaries();
+      clearMap();
+      setMapProgress(false);
+      hideMapNotice();
+      hint.textContent = total == null
+        ? "Pick a county in the filters, or narrow them to 5,000 matching features or fewer, then click \"Apply filters\" to render on the map."
+        : `${total.toLocaleString()} matching features - pick a county, or narrow the filters to ` +
+          `${MAP_NO_COUNTY_MAX.toLocaleString()} or fewer, to render them on the map.`;
+      return;
+    }
   }
   hint.textContent = "Loading...";
   const map = ensureMap();
   await loadCountyBoundaries();
   if (run !== mapRun) return;
-  refreshCountyOutlines(state.county);
-  const params = currentFilterParams();
+  refreshCountyOutlines(state.county || null);
   mapLoadedKey = JSON.stringify(params);
 
   if (geoLayer) { map.removeLayer(geoLayer); geoLayer = null; }
@@ -1267,12 +1286,18 @@ async function loadMap() {
 
   // Frame the county at most once per load - immediately, so features stream
   // in on top of the right view. Later calls are no-ops, and once the user has
-  // panned or zoomed we never move the map again for this load.
+  // panned or zoomed we never move the map again for this load. With no
+  // county selected there is nothing to frame until the data is in, so the
+  // final call frames the rendered features instead.
   mapUserMoved = false;
   let fittedOnce = false;
   const fitToData = () => {
     if (fittedOnce || mapUserMoved) return;
-    const b = countyBounds(state.county);
+    let b = state.county ? countyBounds(state.county) : null;
+    if (!b && !state.county && geoLayer && geoLayer.getLayers().length) {
+      const lb = geoLayer.getBounds();
+      if (lb.isValid()) b = lb;
+    }
     if (!b) return;
     fittedOnce = true;
     programmaticMapMove(() => map.fitBounds(b, { padding: [10, 10] }));

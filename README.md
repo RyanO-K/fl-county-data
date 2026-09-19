@@ -368,7 +368,8 @@ table after each run to confirm it's healthy.
 A small local Flask app (`scripts/app.py`) serves a read-only JSON API plus
 a single-page HTML/JS frontend on top of `D:l-county-data\datal_county_data.db` (path set in `scripts/etl.py`, env `FL_COUNTY_DB` overrides) — a
 filterable/searchable table of parcels/zoning/land-use records, a Leaflet
-map view of the polygons (colored by zoning/land-use code, per county), a
+map view of the polygons (colored by zoning/land-use code; per county, or
+statewide once the filters match 5,000 features or fewer), a
 **Parcel Values** tab over the statewide FL DOR tax-roll (`parcel_values`,
 ~10.8M rows for all 67 counties: just/assessed/taxable/land value, last two
 sales, use code, site address — filterable by county, DOR use code, value
