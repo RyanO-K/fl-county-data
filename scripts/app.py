@@ -98,9 +98,9 @@ def has_table(conn, name):
 def build_filters(args, conn=None):
     """Translate query-string filters into a WHERE clause + params list.
 
-    `conn` is only needed for the recorded-instrument filters (mortgage_since,
-    mortgage_min, mortgage_max, has_lien), which are skipped when it is None or
-    the instrument tables are absent."""
+    `conn` is only needed for the recorded-instrument filters (has_mortgage,
+    mortgage_since, mortgage_min, mortgage_max, has_lien), which are skipped
+    when it is None or the instrument tables are absent."""
     clauses = []
     params = []
 
@@ -145,6 +145,14 @@ def build_filters(args, conn=None):
         since = (args.get("mortgage_since") or "").strip()
         mmin, mmax = args.get("mortgage_min"), args.get("mortgage_max")
         conds, mparams = [], []
+        # has_mortgage=1: any linked mortgage on file. has_mortgage=amount:
+        # a linked mortgage whose dollar amount the clerk index carried
+        # (rare: most feeds leave consideration NULL). Other values ignored.
+        has_mtg = (args.get("has_mortgage") or "").strip().lower()
+        if has_mtg == "amount":
+            conds.append("AND ri.consideration IS NOT NULL")
+        elif has_mtg == "1":
+            conds.append("AND 1")
         if since:
             conds.append("AND ri.recorded_at >= ?")
             mparams.append(since)

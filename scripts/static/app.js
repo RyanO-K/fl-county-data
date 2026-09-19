@@ -12,6 +12,7 @@ const state = {
   max_acreage: "",
   // Recorded-instrument filters. Local build only: the demo database has no
   // instrument tables, so the API ignores these and the inputs are hidden.
+  has_mortgage: "",
   mortgage_since: "",
   mortgage_min: "",
   mortgage_max: "",
@@ -75,6 +76,7 @@ function currentFilterParams(extra) {
     land_use_code: state.land_use_code,
     min_acreage: state.min_acreage,
     max_acreage: state.max_acreage,
+    has_mortgage: state.has_mortgage,
     mortgage_since: state.mortgage_since,
     mortgage_min: state.mortgage_min,
     mortgage_max: state.mortgage_max,
@@ -1442,6 +1444,7 @@ function readFiltersFromForm() {
   state.land_use_code = document.getElementById("f-landuse").value;
   state.min_acreage = document.getElementById("f-min-acre").value;
   state.max_acreage = document.getElementById("f-max-acre").value;
+  state.has_mortgage = document.getElementById("f-has-mtg").value;
   state.mortgage_since = document.getElementById("f-mtg-since").value;
   state.mortgage_min = document.getElementById("f-mtg-min").value;
   state.mortgage_max = document.getElementById("f-mtg-max").value;

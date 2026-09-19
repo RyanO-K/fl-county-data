@@ -57,6 +57,29 @@ def test_mortgage_and_lien_filters(client):
     assert _ids(client.get("/api/features")) == ["A-1", "B-2"]
 
 
+def test_has_mortgage_filter(client, conn):
+    # B-2 gets a mortgage with no amount (Hernando-style feed): it counts as
+    # "has a mortgage on file" but not as "mortgage amount known".
+    R.write_instruments(conn, "hillsborough", [
+        {"instrument_no": "12", "doc_type": "MTG", "doc_desc": "MORTGAGE", "category": "mortgage", "book": None,
+         "page": None, "recorded_at": "2026-07-01", "consideration": None, "legal_desc": None,
+         "parties": [("grantor", 1, "ROE RICHARD"), ("grantee", 1, "BIG BANK")]},
+    ], "D2", "t")
+    conn.execute("INSERT INTO instrument_parcels (county, instrument_no, parcel_id, parcel_key, method) "
+                 "VALUES ('hillsborough','12','B-2','B2','test')")
+    conn.commit()
+    assert _ids(client.get("/api/features?has_mortgage=1")) == ["A-1", "B-2"]
+    assert _ids(client.get("/api/features?has_mortgage=amount")) == ["A-1"]
+    # Combines with the other mortgage filters (same instrument must match all).
+    assert _ids(client.get("/api/features?has_mortgage=1&mortgage_since=2026-08-01")) == ["A-1"]
+    assert _ids(client.get("/api/features?has_mortgage=amount&mortgage_max=50000")) == []
+    # Unknown values are ignored rather than erroring.
+    assert _ids(client.get("/api/features?has_mortgage=bogus")) == ["A-1", "B-2"]
+    # The map feed and the facet endpoint share build_filters.
+    geo = json.loads(client.get("/api/features/geometry?has_mortgage=amount").data)
+    assert [r["feature_key"] for r in geo["rows"]] == ["A-1"]
+
+
 def test_status_has_recordings_cell(client):
     data = json.loads(client.get("/api/status/counties").data)
     assert "recordings" in data["dataset_types"]

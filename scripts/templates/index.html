@@ -92,6 +92,13 @@
         <input type="number" step="any" id="f-max-acre" placeholder="any">
       </label>
       <span class="recording-filters" {% if demo %}hidden{% endif %}>
+        <label>Mortgage on file
+          <select id="f-has-mtg" title="Parcels with a linked mortgage in the clerk index feeds; the amount is known only where the feed carries it">
+            <option value="">Any</option>
+            <option value="1">Has a mortgage</option>
+            <option value="amount">Has a mortgage with known amount</option>
+          </select>
+        </label>
         <label>Mortgage since
           <input type="date" id="f-mtg-since" title="Parcels with a linked mortgage recorded on or after this date (clerk index feeds)">
         </label>

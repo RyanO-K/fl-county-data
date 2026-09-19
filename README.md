@@ -278,6 +278,9 @@ Miami-Dade sell subscriptions and are not wired in. Neither feed carries a
 parcel number or, in practice, a mortgage amount (Hillsborough fills the
 consideration on 1-3 of ~150 mortgages a day; Hernando has no amount column), so
 the "Min/Max mortgage $" filter only matches instruments whose amount is known.
+The "Mortgage on file" filter (`has_mortgage=1`) matches any parcel with a
+linked mortgage regardless of amount; `has_mortgage=amount` narrows that to
+mortgages whose amount the feed carried.
 
 `python scripts/dor_values.py --owners orange` loads one county's owners
 from its contiguous block of the statewide layer in about five minutes (Orange
