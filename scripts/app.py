@@ -280,8 +280,54 @@ def api_counties():
 
 
 FACETS_TTL = 600  # seconds; the dropdown value sets change only when the ETL runs
-_facets_cache = {}
+_facets_cache = {}       # key -> (computed_at, data)
+_facets_inflight = {}    # key -> Event set when a computation for it finishes
 _facets_lock = threading.Lock()
+
+
+def _facets_key(args):
+    return json.dumps(sorted((k, v) for k, v in args.items() if v not in (None, "")))
+
+
+def _facets_disk_path():
+    """Sidecar next to the database (never the database itself) holding the
+    last computed facets, so a restart doesn't repeat the full-table scan."""
+    return DB_PATH.with_name(DB_PATH.stem + ".facets.json")
+
+
+def _db_stamp():
+    """Identity of the database contents: mtime and size of the main file and
+    its WAL. Any write (an ETL run) changes it and invalidates the sidecar."""
+    parts = []
+    for p in (DB_PATH, Path(str(DB_PATH) + "-wal")):
+        try:
+            st = p.stat()
+            parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
+
+
+def _load_disk_facets():
+    try:
+        saved = json.loads(_facets_disk_path().read_text(encoding="utf-8"))
+        if saved.get("stamp") == _db_stamp():
+            return saved.get("entries", {})
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _save_disk_facets():
+    with _facets_lock:
+        entries = {k: v for k, (_t, v) in _facets_cache.items()}
+    path = _facets_disk_path()
+    tmp = path.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps({"stamp": _db_stamp(), "entries": entries}), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        print(f"facets cache not saved: {exc}")
 
 
 def compute_facets(conn, args):
@@ -309,15 +355,29 @@ def compute_facets(conn, args):
 
 
 def cached_facets(conn, args):
-    key = tuple(sorted((k, v) for k, v in args.items() if v not in (None, "")))
-    now = time.time()
-    with _facets_lock:
-        hit = _facets_cache.get(key)
-        if hit and now - hit[0] < FACETS_TTL:
-            return hit[1]
-    data = compute_facets(conn, args)
-    with _facets_lock:
-        _facets_cache[key] = (now, data)
+    """Memoized compute_facets. Concurrent callers for the same key (the
+    startup warm-up and the first page load, typically) share one computation
+    instead of each scanning the table."""
+    key = _facets_key(args)
+    while True:
+        with _facets_lock:
+            hit = _facets_cache.get(key)
+            if hit and time.time() - hit[0] < FACETS_TTL:
+                return hit[1]
+            pending = _facets_inflight.get(key)
+            if pending is None:
+                pending = _facets_inflight[key] = threading.Event()
+                break
+        pending.wait()  # someone else is computing it; re-check the cache
+    try:
+        data = compute_facets(conn, args)
+        with _facets_lock:
+            _facets_cache[key] = (time.time(), data)
+    finally:
+        with _facets_lock:
+            _facets_inflight.pop(key, None)
+        pending.set()
+    _save_disk_facets()
     return data
 
 
@@ -335,6 +395,7 @@ def warm_facets():
         print(f"facets warm-up failed: {exc}")
 
 
+_facets_cache.update({k: (time.time(), v) for k, v in _load_disk_facets().items()})
 threading.Thread(target=warm_facets, name="facets-warmup", daemon=True).start()
 
 

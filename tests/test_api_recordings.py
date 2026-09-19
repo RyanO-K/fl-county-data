@@ -1,4 +1,6 @@
 import json
+import sqlite3
+import time
 
 import pytest
 
@@ -78,6 +80,45 @@ def test_has_mortgage_filter(client, conn):
     # The map feed and the facet endpoint share build_filters.
     geo = json.loads(client.get("/api/features/geometry?has_mortgage=amount").data)
     assert [r["feature_key"] for r in geo["rows"]] == ["A-1"]
+
+
+def test_facets_disk_cache_roundtrip(client, conn):
+    import app as A
+    A._facets_cache.clear()
+    data = A.cached_facets(conn, {})
+    assert data["zoning_codes"] == [] and "land_use_codes" in data
+    assert A._facets_disk_path().exists()
+    # A fresh process (empty memory cache) picks the entry up from disk as
+    # long as the database file has not changed since it was saved.
+    A._facets_cache.clear()
+    assert A._load_disk_facets()[A._facets_key({})] == data
+
+
+def test_facets_concurrent_requests_compute_once(client, conn, monkeypatch):
+    import threading
+    import app as A
+    A._facets_cache.clear()
+    calls = []
+    real = A.compute_facets
+
+    def slow(c, args):
+        calls.append(1)
+        time.sleep(0.2)
+        return real(c, args)
+    monkeypatch.setattr(A, "compute_facets", slow)
+    results = []
+
+    def worker():
+        c = sqlite3.connect(f"file:{A.DB_PATH.as_posix()}?mode=ro", uri=True)
+        c.row_factory = sqlite3.Row
+        try:
+            results.append(A.cached_facets(c, {"dataset_type": "parcels"}))
+        finally:
+            c.close()
+    threads = [threading.Thread(target=worker) for _ in range(3)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    assert len(calls) == 1 and len(results) == 3 and results[0] == results[1] == results[2]
 
 
 def test_status_has_recordings_cell(client):

@@ -238,20 +238,47 @@ function refreshDatasetOptions() {
   datasetSel.value = datasets.includes(prev) ? prev : "";
 }
 
+let facetsSeq = 0; // guards against a slow, superseded facets response landing late
+
+function setFacetsPending(sel, pending) {
+  // Keep the current options (and selection) in place; just signal that the
+  // code list is being refreshed. Unfiltered facets scan the whole table
+  // and can take minutes on a cold cache, so nothing waits on this.
+  sel.disabled = pending;
+  const first = sel.options[0];
+  if (first && first.value === "") first.textContent = pending ? "Loading codes..." : "All";
+  sel.title = pending ? "Loading the code list for this selection..." : "";
+}
+
+/* Fills the zoning / land-use code dropdowns for the current county and
+ * dataset. Never rejects: on failure the dropdowns keep their old options. */
 async function loadFacets() {
   const zoningSel = document.getElementById("f-zoning");
   const landuseSel = document.getElementById("f-landuse");
   const params = qs({ county: state.county, dataset_type: state.dataset_type });
-  const data = await fetchJSON(`/api/facets?${params}`);
-
+  const seq = ++facetsSeq;
   const prevZ = zoningSel.value;
+  const prevL = landuseSel.value;
+  setFacetsPending(zoningSel, true);
+  setFacetsPending(landuseSel, true);
+  let data;
+  try {
+    data = await fetchJSON(`/api/facets?${params}`);
+  } catch (err) {
+    console.warn("facets unavailable:", err);
+    data = null;
+  }
+  if (seq !== facetsSeq) return; // a newer selection replaced this request
+  setFacetsPending(zoningSel, false);
+  setFacetsPending(landuseSel, false);
+  if (!data) return;
+
   zoningSel.innerHTML = '<option value="">All</option>' +
     data.zoning_codes
       .map((z) => `<option value="${z.zoning_code}">${z.zoning_code}${z.zoning_desc ? " - " + truncate(z.zoning_desc, 40) : ""}</option>`)
       .join("");
   zoningSel.value = data.zoning_codes.some((z) => z.zoning_code === prevZ) ? prevZ : "";
 
-  const prevL = landuseSel.value;
   landuseSel.innerHTML = '<option value="">All</option>' +
     data.land_use_codes
       .map((l) => `<option value="${l.land_use_code}">${l.land_use_code}${l.land_use_desc ? " - " + truncate(l.land_use_desc, 40) : ""}</option>`)
@@ -1484,7 +1511,7 @@ function initEvents() {
   document.getElementById("filters").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     readFiltersFromForm();
-    await loadFacets();
+    loadFacets(); // refreshes the code dropdowns in the background
     await loadFeatures(false);
     if (state.view === "map") await loadMap();
   });
@@ -1493,7 +1520,7 @@ function initEvents() {
     document.getElementById("filters").reset();
     refreshDatasetOptions();
     readFiltersFromForm();
-    await loadFacets();
+    loadFacets(); // refreshes the code dropdowns in the background
     await loadFeatures(false);
     clearMap();
   });
@@ -1548,12 +1575,15 @@ async function init() {
   const statusReady = loadStatus();
   await loadSources();
   await loadCombos();
-  await loadFacets();
+  // The code dropdowns fill in whenever the facet scan finishes; the table
+  // and map don't depend on them, so don't hold the first render for it.
+  const facetsReady = loadFacets();
   await loadFeatures(false);
   // Open on the default view (map) now that the filter state is ready, using
   // the same path a click on the toggle takes so Leaflet sizes itself.
   setView(state.view);
   await statusReady;
+  await facetsReady;
 
   // Live updates: poll status every 20s, and silently refresh the current
   // table page every 25s so new/changed rows and updated sync timestamps
