@@ -311,6 +311,48 @@ function setDisabled(el, disabled) {
   }
 }
 
+/* Asks the server how many rows each county (ignoring the county filter) and
+ * each dataset (ignoring the dataset filter) can still match under the other
+ * categorical filters - dataset, zoning code, land-use code, recording
+ * filters - and greys out the zeros. Answered from cached aggregates, so it
+ * runs on every change. Ranges and free text are not considered. */
+let filterCountsSeq = 0;
+async function refreshFilterCounts() {
+  const seq = ++filterCountsSeq;
+  const params = {
+    county: document.getElementById("f-county").value,
+    dataset_type: document.getElementById("f-dataset").value,
+    zoning_code: document.getElementById("f-zoning").value,
+    land_use_code: document.getElementById("f-landuse").value,
+    has_mortgage: document.getElementById("f-has-mtg").value,
+    has_lien: document.getElementById("f-lien").checked ? "1" : "",
+    mortgage_since: document.getElementById("f-mtg-since").value,
+    mortgage_min: document.getElementById("f-mtg-min").value,
+    mortgage_max: document.getElementById("f-mtg-max").value,
+  };
+  let data;
+  try {
+    data = await fetchJSON(`/api/filter_counts?${qs(params)}`);
+  } catch (err) {
+    console.warn("filter counts unavailable:", err); // older server: keep the client-side greying
+    return;
+  }
+  if (seq !== filterCountsSeq) return;
+  const countySel = document.getElementById("f-county");
+  const datasetSel = document.getElementById("f-dataset");
+  let changed = false;
+  for (const opt of countySel.options) {
+    if (opt.value) opt.disabled = !(data.counties[opt.value] > 0);
+  }
+  if (countySel.value && countySel.selectedOptions[0].disabled) { countySel.value = ""; changed = true; }
+  for (const opt of datasetSel.options) {
+    if (opt.value) opt.disabled = !(data.datasets[opt.value] > 0);
+  }
+  if (datasetSel.value && datasetSel.selectedOptions[0].disabled) { datasetSel.value = ""; changed = true; }
+  if (typeof updateFilterCounts === "function") updateFilterCounts();
+  if (changed) { applyAvailability(); loadFacets(); }
+}
+
 function applyAvailability() {
   const countySel = document.getElementById("f-county");
   const datasetSel = document.getElementById("f-dataset");
@@ -353,6 +395,7 @@ function applyAvailability() {
     setDisabled(document.getElementById("f-lien"), !(!s || s.lien > 0));
   }
   if (typeof updateFilterCounts === "function") updateFilterCounts();
+  refreshFilterCounts();
 }
 
 let facetsSeq = 0; // guards against a slow, superseded facets response landing late
@@ -372,7 +415,10 @@ function setFacetsPending(sel, pending) {
 async function loadFacets() {
   const zoningSel = document.getElementById("f-zoning");
   const landuseSel = document.getElementById("f-landuse");
-  const params = qs({ county: state.county, dataset_type: state.dataset_type });
+  const params = qs({
+    county: document.getElementById("f-county").value,
+    dataset_type: document.getElementById("f-dataset").value,
+  });
   const seq = ++facetsSeq;
   const prevZ = zoningSel.value;
   const prevL = landuseSel.value;
@@ -401,6 +447,8 @@ async function loadFacets() {
       .map((l) => `<option value="${l.land_use_code}">${l.land_use_code}${l.land_use_desc ? " - " + truncate(l.land_use_desc, 40) : ""}</option>`)
       .join("");
   landuseSel.value = data.land_use_codes.some((l) => l.land_use_code === prevL) ? prevL : "";
+  // A code that vanished with the new county/dataset changes what can match.
+  if (zoningSel.value !== prevZ || landuseSel.value !== prevL) refreshFilterCounts();
 }
 
 function truncate(s, n) {
@@ -1647,8 +1695,12 @@ function setView(view) {
 function initEvents() {
   // Re-evaluate what can still match whenever a choice that constrains the
   // others changes (county <-> dataset, recording filters <-> county/dataset).
-  document.getElementById("f-county").addEventListener("change", applyAvailability);
-  document.getElementById("f-dataset").addEventListener("change", applyAvailability);
+  for (const id of ["f-county", "f-dataset"]) {
+    document.getElementById(id).addEventListener("change", () => { applyAvailability(); loadFacets(); });
+  }
+  for (const id of ["f-zoning", "f-landuse"]) {
+    document.getElementById(id).addEventListener("change", refreshFilterCounts);
+  }
   for (const id of ["f-has-mtg", "f-lien", "f-mtg-since", "f-mtg-min", "f-mtg-max"]) {
     document.getElementById(id).addEventListener("change", applyAvailability);
   }

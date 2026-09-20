@@ -389,6 +389,77 @@ def compute_availability(conn):
     return {"recordings": out}
 
 
+def compute_code_counts(conn):
+    """Row counts per county x dataset, and per county x dataset x zoning /
+    land-use code, from the covering facet indexes (about a second each on the
+    full database). filter_counts() answers from this in memory."""
+    out = {"datasets": {}, "zoning": {}, "land_use": {}}
+    for county, dt, n in conn.execute(
+            "SELECT county, dataset_type, COUNT(*) FROM features GROUP BY county, dataset_type"):
+        out["datasets"].setdefault(county, {})[dt] = n
+    for key, col in (("zoning", "zoning_code"), ("land_use", "land_use_code")):
+        for county, dt, code, n in conn.execute(
+                f"SELECT county, dataset_type, {col}, COUNT(*) FROM features "
+                f"WHERE {col} IS NOT NULL AND {col} != '' GROUP BY county, dataset_type, {col}"):
+            out[key].setdefault(county, {}).setdefault(dt, {})[code] = n
+    return out
+
+
+def _recording_needs(args):
+    """Which availability counters a recording filter selection needs > 0."""
+    needs = set()
+    mtg = (args.get("has_mortgage") or "").strip().lower()
+    if mtg == "1" or (args.get("mortgage_since") or "").strip():
+        needs.add("mortgage")
+    if mtg == "amount" or args.get("mortgage_min") or args.get("mortgage_max"):
+        needs.add("mortgage_amount")
+    if args.get("has_lien") == "1":
+        needs.add("lien")
+    return needs
+
+
+def filter_counts(conn, args):
+    """Upper bound on matching rows per county (ignoring the county filter) and
+    per dataset (ignoring the dataset filter) for the categorical filters:
+    dataset, zoning code, land-use code and the recorded-instrument filters.
+    Each constraint is applied independently and the minimum taken, so a
+    zero is certain but a positive count may still over-estimate. Ranges and
+    free text are not considered. The UI greys out zero choices."""
+    cc = _cached("code_counts", lambda: compute_code_counts(conn))
+    rec = _cached("availability", lambda: compute_availability(conn))["recordings"]
+    dt_arg = args.get("dataset_type") or ""
+    zoning = args.get("zoning_code") or ""
+    land_use = args.get("land_use_code") or ""
+    needs = _recording_needs(args)
+
+    def bound(county, dtype):
+        ds = cc["datasets"].get(county, {})
+        total = 0
+        for d in ([dtype] if dtype else list(ds)):
+            n = ds.get(d, 0)
+            if zoning:
+                n = min(n, cc["zoning"].get(county, {}).get(d, {}).get(zoning, 0))
+            if land_use:
+                n = min(n, cc["land_use"].get(county, {}).get(d, {}).get(land_use, 0))
+            if needs:
+                r = rec.get(county)
+                if not r or any(r[k] <= 0 for k in needs):
+                    n = 0
+                else:
+                    n = min(n, r["datasets"].get(d, 0))
+            total += n
+        return total
+
+    counties = {c: bound(c, dt_arg) for c in cc["datasets"]}
+    county_arg = args.get("county") or ""
+    all_dts = sorted({d for ds in cc["datasets"].values() for d in ds})
+    datasets = {
+        d: (bound(county_arg, d) if county_arg else sum(bound(c, d) for c in cc["datasets"]))
+        for d in all_dts
+    }
+    return {"counties": counties, "datasets": datasets}
+
+
 def cached_facets(conn, args):
     return _cached(_facets_key(args), lambda: compute_facets(conn, args))
 
@@ -429,6 +500,7 @@ def warm_facets():
             args = {"dataset_type": dt} if dt else {}
             cached_facets(conn, args)
         _cached("availability", lambda: compute_availability(conn))
+        _cached("code_counts", lambda: compute_code_counts(conn))
         conn.close()
     except Exception as exc:  # noqa: BLE001
         print(f"facets warm-up failed: {exc}")
@@ -452,6 +524,13 @@ def api_availability():
     match anything (see compute_availability). Cached like the facets."""
     conn = get_db()
     return jsonify(_cached("availability", lambda: compute_availability(conn)))
+
+
+@app.route("/api/filter_counts")
+def api_filter_counts():
+    """Per-county and per-dataset match bounds for the current categorical
+    filters (see filter_counts); answered from cached aggregates."""
+    return jsonify(filter_counts(get_db(), request.args))
 
 
 @app.route("/api/features")

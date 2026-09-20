@@ -133,6 +133,34 @@ def test_availability_counts_linked_features_per_county(client, conn):
     assert "hernando" not in data["recordings"]
 
 
+def test_filter_counts_grey_out_counties_and_datasets(client, conn):
+    import app as A
+    conn.execute("INSERT INTO features (county, dataset_type, feature_key, feature_key_norm, zoning_code, land_use_code, last_synced_at) VALUES "
+                 "('hernando','parcels','H-1','H1','AG','01','t'), ('hernando','zoning','Z-1','Z1','AG',NULL,'t'), "
+                 "('hillsborough','parcels','C-3','C3','RS','01','t')")
+    conn.commit()
+    A._facets_cache.clear()
+    get = lambda q: json.loads(client.get("/api/filter_counts?" + q).data)
+
+    r = get("")
+    assert r["counties"] == {"hernando": 2, "hillsborough": 3}
+    assert r["datasets"] == {"parcels": 4, "zoning": 1}
+    # Zoning code AG exists only in Hernando: Hillsborough greys out.
+    r = get("zoning_code=AG")
+    assert r["counties"] == {"hernando": 2, "hillsborough": 0}
+    assert r["datasets"] == {"parcels": 1, "zoning": 1}
+    # Dataset narrows the county bound; county narrows the dataset bound.
+    assert get("zoning_code=AG&dataset_type=zoning")["counties"] == {"hernando": 1, "hillsborough": 0}
+    assert get("county=hillsborough")["datasets"] == {"parcels": 3, "zoning": 0}
+    # Land use + zoning combine conservatively (min of the two, never below a true match).
+    assert get("zoning_code=RS&land_use_code=01")["counties"] == {"hernando": 0, "hillsborough": 1}
+    # Recording filters: only counties (and datasets) with linked instruments survive.
+    r = get("has_mortgage=1")
+    assert r["counties"] == {"hernando": 0, "hillsborough": 1}
+    assert r["datasets"] == {"parcels": 1, "zoning": 0}
+    assert get("has_lien=1&zoning_code=AG")["counties"] == {"hernando": 0, "hillsborough": 0}
+
+
 def test_status_has_recordings_cell(client):
     data = json.loads(client.get("/api/status/counties").data)
     assert "recordings" in data["dataset_types"]
