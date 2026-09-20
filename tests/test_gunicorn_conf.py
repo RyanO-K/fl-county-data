@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-CONF = Path(__file__).resolve().parent.parent / "scripts" / "gunicorn.conf.py"
+CONF = Path(__file__).resolve().parent.parent / "gunicorn.conf.py"
 
 
 @pytest.fixture
@@ -23,7 +23,8 @@ def hooks():
 
 @pytest.fixture
 def server():
-    return types.SimpleNamespace(log=logging.getLogger("test-gunicorn"))
+    return types.SimpleNamespace(log=logging.getLogger("test-gunicorn"),
+                                 cfg=types.SimpleNamespace(preload_app=False))
 
 
 @pytest.fixture

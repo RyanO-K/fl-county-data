@@ -1,6 +1,6 @@
 """Gunicorn hooks for the deployed app. Gunicorn loads ./gunicorn.conf.py
-from its working directory, which the start command sets to this folder
-(--chdir scripts), so no flag is needed.
+from the directory it is launched in (the repo root on Render) before it
+applies --chdir, so this file lives at the root and needs no flag.
 
 app.py starts a background thread at import time that scans the database
 to warm the facets cache. If gunicorn preloads the application (--preload
@@ -38,6 +38,8 @@ def _warmup_thread():
 def when_ready(server):
     """Master, before forking: don't fork while the warm-up scan is running."""
     t = _warmup_thread()
+    server.log.info("gunicorn.conf.py: preload_app=%s app_imported=%s warmup_running=%s",
+                    getattr(server.cfg, "preload_app", None), "app" in sys.modules, t is not None)
     if t is None:
         return
     server.log.info("waiting for %s before forking workers", WARMUP_THREAD)
