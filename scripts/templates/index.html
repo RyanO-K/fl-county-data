@@ -42,6 +42,7 @@
     Source code and data provenance: <a href="https://github.com/RyanO-K/fl-county-data" target="_blank" rel="noopener">github.com/RyanO-K/fl-county-data</a>.
   </div>
   {% endif %}
+  <script>window.HAS_RECORDINGS = {{ 'true' if has_recordings else 'false' }};</script>
 
   <div class="layout" id="layout">
   <aside id="sidebar" class="sidebar" aria-label="Filters">
@@ -95,7 +96,7 @@
           </div>
         </section>
 
-        <section class="fgroup recording-filters" data-group="browse.recorded" {% if demo %}hidden{% endif %}>
+        <section class="fgroup recording-filters" data-group="browse.recorded" {% if not has_recordings %}hidden{% endif %}>
           <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-recorded">
             <span class="fgroup-title">Recorded instruments</span>
             <span class="fgroup-dot" title="This section has an active filter"></span>

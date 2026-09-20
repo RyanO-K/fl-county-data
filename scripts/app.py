@@ -222,16 +222,21 @@ def build_values_filters(args):
 @app.route("/")
 def index():
     demo = None
-    if os.environ.get("DEMO_MODE") == "1":
-        demo = {"counties": []}
-        try:
-            conn = get_db()
+    has_recordings = False
+    try:
+        conn = get_db()
+        has_recordings = has_table(conn, "instrument_parcels")
+        if os.environ.get("DEMO_MODE") == "1":
+            demo = {"counties": []}
             row = conn.execute("SELECT value FROM demo_info WHERE key='counties'").fetchone()
             if row:
                 demo["counties"] = json.loads(row[0])
-        except sqlite3.Error:
-            pass
-    return render_template("index.html", demo=demo)
+    except sqlite3.Error:
+        if os.environ.get("DEMO_MODE") == "1":
+            demo = demo or {"counties": []}
+    # The recording filters show whenever the instrument tables exist (the
+    # demo database now carries them for its counties), not by demo flag.
+    return render_template("index.html", demo=demo, has_recordings=has_recordings)
 
 
 @app.route("/api/sources")
@@ -685,12 +690,14 @@ def api_feature_instruments(feature_id):
         "ON ri.county = ip.county AND ri.instrument_no = ip.instrument_no "
         "WHERE ip.county = ? AND ip.parcel_key = ? ORDER BY ri.recorded_at DESC, ri.instrument_no DESC LIMIT 200",
         key).fetchall()
+    # Party names stay out of the demo database, so that table may be absent.
+    with_parties = has_table(conn, "instrument_parties")
     out = []
     for r in rows:
         d = dict(r)
         d["parties"] = [{"role": p["role"], "name": p["name"]} for p in conn.execute(
             "SELECT role, name FROM instrument_parties WHERE county = ? AND instrument_no = ? ORDER BY role, seq",
-            (key[0], r["instrument_no"]))]
+            (key[0], r["instrument_no"]))] if with_parties else []
         out.append(d)
     return jsonify({"instruments": out})
 

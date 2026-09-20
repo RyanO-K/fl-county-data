@@ -10,8 +10,8 @@ const state = {
   land_use_code: "",
   min_acreage: "",
   max_acreage: "",
-  // Recorded-instrument filters. Local build only: the demo database has no
-  // instrument tables, so the API ignores these and the inputs are hidden.
+  // Recorded-instrument filters. Shown when the database carries the clerk
+  // instrument tables (window.HAS_RECORDINGS); the API ignores them otherwise.
   has_mortgage: "",
   mortgage_since: "",
   mortgage_min: "",
@@ -703,9 +703,10 @@ async function showDetail(id) {
         : `<p class="hint">${window.DEMO_MODE && data.dataset_type === "parcels"
             ? "Raw source attributes are omitted for parcels in the public demo to fit the free host; the full build keeps them."
             : "No additional attributes."}</p>`);
-    // Owner and recorded instruments live in tables the demo database does not
-    // carry, so the endpoints 404 there; fetchJSON throws on 404, hence catch.
-    if (data.dataset_type === "parcels" && !window.DEMO_MODE) {
+    // The owner table never ships with the demo and the instrument tables only
+    // do for some builds; either endpoint 404s when its table is absent, and
+    // fetchJSON throws on 404, hence the catches.
+    if (data.dataset_type === "parcels" && (!window.DEMO_MODE || window.HAS_RECORDINGS)) {
       const [owner, inst] = await Promise.all([
         fetchJSON(`/api/feature/${id}/owner`).catch(() => null),
         fetchJSON(`/api/feature/${id}/instruments`).catch(() => null),

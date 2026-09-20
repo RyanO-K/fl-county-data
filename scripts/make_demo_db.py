@@ -74,10 +74,18 @@ def county_sizes(src, require_parcels=False, parcel_attrs=True):
     return {c: (geo.get(c, 0) + attr.get(c, 0)) * 1.3 + vals.get(c, 0) for c in counties}
 
 
+# Clerk index rows (instrument, category, date, amount, book/page) and their
+# parcel links are public records and ship with the demo so the recording
+# filters work there. Party names, the DOR owner table and the feed bookkeeping
+# stay local.
+DEMO_RECORDING_TABLES = ("recorded_instruments", "instrument_parcels")
+
+
 def schema_statements(src):
-    """CREATE statements to replay in the demo, minus the owner/recording
-    tables (and their indexes), which never leave the local database."""
-    private = set(recordings.PRIVATE_TABLES)
+    """CREATE statements to replay in the demo, minus the private owner /
+    recording tables (and their indexes), which never leave the local
+    database. See DEMO_RECORDING_TABLES for the two that do ship."""
+    private = set(recordings.PRIVATE_TABLES) - set(DEMO_RECORDING_TABLES)
     for sql, tbl in src.execute(
             "SELECT sql, tbl_name FROM sqlite_master WHERE type IN ('table','index') "
             "AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%'"):
@@ -159,17 +167,33 @@ def main():
         m += len(rows)
     print(f"parcel_values: {m:,}")
 
+    for tbl in DEMO_RECORDING_TABLES:
+        if not src.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone():
+            continue
+        tcols = [r[1] for r in src.execute(f"PRAGMA table_info({tbl})")]
+        cur = src.execute(f"SELECT {', '.join(tcols)} FROM {tbl} WHERE county IN ({ph})", chosen)
+        k = 0
+        while True:
+            rows = cur.fetchmany(5000)
+            if not rows:
+                break
+            dst.executemany(f"INSERT INTO {tbl} ({', '.join(tcols)}) VALUES ({','.join('?'*len(tcols))})", rows)
+            k += len(rows)
+        print(f"{tbl}: {k:,}")
+
     scols = [r[1] for r in src.execute("PRAGMA table_info(sync_log)")]
-    # Owner and recordings runs stay local with their tables (recordings.PRIVATE_TABLES).
+    # Owner runs stay local with their table; recordings runs ship with the
+    # instrument tables so the status page can show them.
     rows = src.execute(f"SELECT {', '.join(scols)} FROM sync_log WHERE (county IN ({ph}) OR county='statewide') "
-                       "AND dataset_type NOT IN ('owners', 'recordings')", chosen).fetchall()
+                       "AND dataset_type != 'owners'", chosen).fetchall()
     dst.executemany(f"INSERT INTO sync_log ({', '.join(scols)}) VALUES ({','.join('?'*len(scols))})", rows)
 
     dst.execute("CREATE TABLE IF NOT EXISTS demo_info (key TEXT PRIMARY KEY, value TEXT)")
     dst.executemany("INSERT INTO demo_info VALUES (?,?)", [
         ("counties", json.dumps(sorted(chosen))),
         ("built_from", "full 67-county database"),
-        ("note", "Demo subset: whole counties, geometry rounded to 6 decimals, JSON columns zlib-compressed."
+        ("note", "Demo subset: whole counties, geometry rounded to 6 decimals, JSON columns zlib-compressed. "
+                 "Clerk instruments and parcel links included; party names and owners are not."
                  + (" Raw source attributes omitted on parcel rows." if drop_parcel_attrs else "")),
         ("parcel_attrs", "off" if drop_parcel_attrs else "keep"),
     ])
