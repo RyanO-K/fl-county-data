@@ -15,6 +15,7 @@
   --highlight: #fef3c7;
   --accent-soft: #e8effd;
   --topbar-h: 52px;
+  --banner-h: 0px; /* height of the demo banner when present; set by app.js */
   --sidebar-w: 280px;
   --sidebar-bg: #fbfcfd;
   --control-h: 32px;
@@ -244,15 +245,15 @@ td.status-badge span, .status-tag {
  * body.drawer-open slides it in on narrow ones; body.no-sidebar removes it
  * altogether (Pipeline Status has nothing to filter).
  * ------------------------------------------------------------------- */
-.layout { display: flex; align-items: flex-start; min-height: calc(100vh - var(--topbar-h)); }
+.layout { display: flex; align-items: flex-start; min-height: calc(100vh - var(--topbar-h) - var(--banner-h)); }
 .content { flex: 1 1 auto; min-width: 0; }
 
 .sidebar {
   position: sticky;
-  top: var(--topbar-h);
+  top: calc(var(--topbar-h) + var(--banner-h));
   flex: 0 0 var(--sidebar-w);
   width: var(--sidebar-w);
-  height: calc(100vh - var(--topbar-h));
+  height: calc(100vh - var(--topbar-h) - var(--banner-h));
   display: flex;
   flex-direction: column;
   background: var(--sidebar-bg);
@@ -667,11 +668,25 @@ abbr.gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
   position: absolute; top: 4px; right: 6px; border: none; background: none;
   font-size: 18px; line-height: 1; color: #92400e; cursor: pointer;
 }
+/* The demo banner sticks under the topbar (so the sidebar can sit below it
+ * without ever pushing its Apply footer off-screen) and collapses to one
+ * line; app.js keeps --banner-h equal to its rendered height. */
 .demo-banner {
+  position: sticky; top: var(--topbar-h); z-index: 1250;
   background: #eff6ff; border-bottom: 1px solid #bfdbfe; color: #1e3a8a;
-  padding: 8px 24px; font-size: 13px; line-height: 1.45;
+  padding: 6px 24px; font-size: 13px; line-height: 1.45;
 }
 .demo-banner a { color: #1d4ed8; }
+.demo-banner-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.demo-banner-toggle {
+  flex: none; height: 26px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid #bfdbfe; background: #fff; color: #1d4ed8;
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.demo-banner-toggle:hover { background: #dbeafe; }
+.demo-banner-toggle:focus-visible { outline: none; box-shadow: var(--focus); }
+.demo-banner-details { margin-top: 4px; }
+.demo-banner.collapsed .demo-banner-details { display: none; }
 
 /* The recording filters are one sidebar section so the demo can hide them all
  * with a single `hidden` (the demo database has no instrument tables). */

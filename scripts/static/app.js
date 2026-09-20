@@ -1748,6 +1748,7 @@ function initEvents() {
   // After the form handlers above: the sidebar listens on the same submit and
   // reset events and must run once the filter state has been read.
   initSidebar();
+  initDemoBanner();
 
   document.querySelectorAll(".fullscreen-btn").forEach((btn) => {
     btn.addEventListener("click", () => toggleFullscreen(btn.dataset.fullscreenTarget));
@@ -1818,6 +1819,33 @@ async function init() {
 const SIDEBAR_HIDDEN_KEY = "flcd.sidebar.hidden";
 const SIDEBAR_GROUPS_KEY = "flcd.sidebar.groups";
 const narrowViewport = window.matchMedia("(max-width: 899px)");
+
+/* Public-demo banner: collapsible to one line (remembered per browser), and
+ * its rendered height feeds --banner-h so the sticky sidebar always fits
+ * under it - the banner used to push the sidebar's Apply footer off-screen. */
+const DEMO_BANNER_KEY = "flcd.demo.banner";
+function initDemoBanner() {
+  const banner = document.getElementById("demo-banner");
+  const root = document.documentElement;
+  const setHeight = () => root.style.setProperty("--banner-h", banner ? `${banner.offsetHeight}px` : "0px");
+  if (!banner) { setHeight(); return; }
+  const btn = document.getElementById("demo-banner-toggle");
+  const apply = (collapsed) => {
+    banner.classList.toggle("collapsed", collapsed);
+    btn.setAttribute("aria-expanded", String(!collapsed));
+    btn.textContent = collapsed ? "Show details" : "Hide details";
+    setHeight();
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 60);
+  };
+  apply(storageGet(DEMO_BANNER_KEY) === "collapsed");
+  btn.addEventListener("click", () => {
+    const collapsed = !banner.classList.contains("collapsed");
+    storageSet(DEMO_BANNER_KEY, collapsed ? "collapsed" : "open");
+    apply(collapsed);
+  });
+  if (typeof ResizeObserver === "function") new ResizeObserver(setHeight).observe(banner);
+  window.addEventListener("resize", setHeight);
+}
 
 function storageGet(key) {
   try { return localStorage.getItem(key); } catch (e) { return null; }

@@ -36,10 +36,16 @@
   </header>
   {% if demo %}
   <script>window.DEMO_MODE = true;</script>
-  <div class="demo-banner">
-    <b>Public demo.</b> This site serves {{ demo.counties|length }} complete counties so it fits a free host; the full build covers all 67 Florida counties (10.5M valued parcels) and refreshes daily.
-    Counties here: {{ demo.counties|map('replace', '_', ' ')|map('title')|join(', ') }}.
-    Source code and data provenance: <a href="https://github.com/RyanO-K/fl-county-data" target="_blank" rel="noopener">github.com/RyanO-K/fl-county-data</a>.
+  <div class="demo-banner" id="demo-banner">
+    <div class="demo-banner-row">
+      <span><b>Public demo.</b> {{ demo.counties|length }} complete Florida counties on a free host; the full build covers all 67.</span>
+      <button type="button" id="demo-banner-toggle" class="demo-banner-toggle" aria-expanded="true" aria-controls="demo-banner-details">Hide details</button>
+    </div>
+    <div class="demo-banner-details" id="demo-banner-details">
+      All 67 counties (10.5M valued parcels) are in the full build, which refreshes weekly.
+      Counties here: {{ demo.counties|map('replace', '_', ' ')|map('title')|join(', ') }}.
+      Source code and data provenance: <a href="https://github.com/RyanO-K/fl-county-data" target="_blank" rel="noopener">github.com/RyanO-K/fl-county-data</a>.
+    </div>
   </div>
   {% endif %}
   <script>window.HAS_RECORDINGS = {{ 'true' if has_recordings else 'false' }};</script>
