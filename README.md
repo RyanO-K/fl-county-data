@@ -288,10 +288,12 @@ is first); `--owners all` does the whole state. `python scripts/recordings.py
 [county]` loads new feed files; `etl.py` runs both on every scheduled run
 (`--no-recordings` skips the feeds).
 
-These five tables (`parcel_owners`, `recorded_instruments`,
-`instrument_parties`, `instrument_parcels`, `recording_files`) are never
-copied into the public demo database (`make_demo_db.schema_statements`), and
-the demo app hides the filters and popup sections. Raw county-layer owner
+Of these five tables, `recorded_instruments` and `instrument_parcels` (the
+public clerk index rows and their parcel links) ship with the public demo for
+its counties, so the recording filters work there; `parcel_owners`,
+`instrument_parties` and `recording_files` never leave the local database
+(`make_demo_db.schema_statements`, `DEMO_RECORDING_TABLES`), and the app shows
+the recording filters and popup section only when the instrument tables exist. Raw county-layer owner
 and mailing attributes are still dropped from `attributes_json`
 (`etl.is_private_field`): the DOR roll is the one source of owner data.
 
@@ -313,12 +315,16 @@ and mailing attributes are still dropped from `attributes_json`
 
 Live at https://fl-county-data.onrender.com (source: this repo). The full
 database is too large for a free host, so the public site runs a subset of
-whole counties (boundaries rounded to 6 decimals); everything else is
-identical to the local build. The current demo lists the 18 counties whose
-parcel boundaries were complete when it was built (~970 MB uncompressed,
-108 MB gzipped; Render's free build handled that size fine).
+whole counties (boundaries rounded to 6 decimals, raw parcel attributes
+dropped); everything else is identical to the local build, including the
+clerk instruments for Hernando and Hillsborough. The current demo (2026-09-19)
+holds 51 of the 60 counties whose parcel boundaries were complete: all 13
+priority metros plus the smallest of the rest (6.2M features, 5.4M valued
+parcels, 297k instruments; 5.1 GB uncompressed, 1.6 GB gzipped, under
+GitHub's 2 GB release-asset limit). Size estimates from `county_sizes` run
+about 1.8x under the real file with attributes off.
 
-1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --budget-mb 1100 --require-parcels`
+1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --budget-mb 2830 --require-parcels --parcel-attrs off`
    (priority metros first, then smallest-first, complete counties only; or
    `--counties a,b,c` for an explicit list) then `gzip -k demo/fl_county_demo.db`.
 2. Attach the `.gz` to the GitHub Release tagged `demo-data`
