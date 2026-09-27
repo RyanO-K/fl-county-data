@@ -363,6 +363,80 @@ body.sidebar-hidden .sidebar, body.no-sidebar .sidebar { display: none; }
 .filters input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 .filters input[type=checkbox]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none; }
 
+/* Code multi-selects (zoning / land use): a trigger that looks like the
+ * other selects, opening an in-flow panel (so the scrolling rail and the
+ * phone drawer can't clip it) with a search box and a checkbox list. The
+ * native <select multiple> underneath holds the value; it is display:none
+ * rather than [hidden] because filterFields() skips [hidden] fields. */
+.fms { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fms-native { display: none; }
+.fms-ui { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fms-trigger {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; min-width: 0;
+  height: var(--control-h);
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font: inherit; font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.fms-trigger:hover { border-color: #c5ced8; }
+.fms-trigger:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.fms-trigger[aria-expanded="true"] { border-color: var(--accent); }
+.fms-trigger:disabled { opacity: .55; background: #f1f5f9; cursor: not-allowed; }
+.fms-trigger.has-value .fms-summary { font-weight: 500; }
+.fms-summary { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fms-trigger .chevron { flex: none; color: var(--text-muted); transition: transform .15s ease; }
+.fms-trigger[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+.fms:has(.fms-trigger:disabled) .fl { color: #9aa5b1; }
+
+.fms-panel {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
+}
+.fms-panel[hidden] { display: none; }
+.fms-actions { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.fms-actions button {
+  height: 24px; padding: 0 8px;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--accent);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+}
+.fms-actions button:hover { background: var(--accent-soft); }
+.fms-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fms-count { margin-left: auto; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.fms-list {
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  margin: 0 -4px;
+}
+.filters label.fms-opt {
+  flex-direction: row; align-items: center; gap: 8px;
+  min-height: 28px; padding: 3px 4px;
+  border-radius: 4px;
+  font-size: 13px; line-height: 1.3;
+  cursor: pointer;
+}
+.filters label.fms-opt[hidden] { display: none; }
+.filters label.fms-opt:hover { background: #f1f4f8; }
+.filters label.fms-opt:has(input:checked) { background: var(--accent-soft); }
+.filters .fms-opt input[type=checkbox] { flex: none; width: 15px; height: 15px; padding: 0; }
+.fms-code { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
+.fms-desc { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+.fms-empty { margin: 4px 0; font-size: 12px; color: var(--text-muted); }
+.fms-empty[hidden] { display: none; }
+
 .filters-actions {
   flex: none;
   display: flex;
@@ -450,7 +524,7 @@ body.sidebar-hidden .sidebar, body.no-sidebar .sidebar { display: none; }
   body.drawer-open { overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar, .fgroup-head .chevron { transition: none; }
+  .sidebar, .fgroup-head .chevron, .fms-trigger .chevron { transition: none; }
 }
 
 .view-toggle { display: flex; gap: 6px; margin-bottom: 12px; }

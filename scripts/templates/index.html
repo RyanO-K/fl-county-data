@@ -85,12 +85,14 @@
             <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
           </button>
           <div class="fgroup-body" id="fg-browse-land">
-            <label><span class="fl">Zoning code</span>
-              <select id="f-zoning"><option value="">All</option></select>
-            </label>
-            <label><span class="fl">Land use code</span>
-              <select id="f-landuse"><option value="">All</option></select>
-            </label>
+            <div class="fms" data-multiselect="f-zoning">
+              <span class="fl" id="fl-zoning">Zoning code</span>
+              <select id="f-zoning" class="fms-native" multiple aria-labelledby="fl-zoning" data-chip="Zoning code" tabindex="-1"></select>
+            </div>
+            <div class="fms" data-multiselect="f-landuse">
+              <span class="fl" id="fl-landuse">Land use code</span>
+              <select id="f-landuse" class="fms-native" multiple aria-labelledby="fl-landuse" data-chip="Land use code" tabindex="-1"></select>
+            </div>
             <div class="frange" role="group" aria-labelledby="fl-acre">
               <span class="fl" id="fl-acre">Acreage</span>
               <div class="frange-inputs">

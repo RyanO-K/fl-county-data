@@ -95,9 +95,37 @@ def has_table(conn, name):
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
+# Most codes one multi-select filter accepts: the facets list at most 500 per
+# field, so the UI never sends more, and the cap keeps a hand-built URL far
+# below SQLite's bound-variable limit (32766 since SQLite 3.32).
+MAX_FILTER_CODES = 500
+
+
+def arg_list(args, name, limit=None):
+    """All non-empty values of a repeatable query parameter (?zoning_code=A&
+    zoning_code=B), de-duplicated in order and cut to `limit`. Accepts a
+    werkzeug MultiDict or a plain dict whose value is a string or a list."""
+    if hasattr(args, "getlist"):
+        values = args.getlist(name)
+    else:
+        v = args.get(name)
+        values = v if isinstance(v, (list, tuple)) else [v]
+    out, seen = [], set()
+    for v in values:
+        if v in (None, "") or v in seen:
+            continue
+        if limit is not None and len(out) >= limit:
+            break
+        seen.add(v)
+        out.append(v)
+    return out
+
+
 def build_filters(args, conn=None):
     """Translate query-string filters into a WHERE clause + params list.
 
+    zoning_code and land_use_code are multi-select: repeat the parameter to
+    match any of several codes (OR within a field, AND across fields).
     `conn` is only needed for the recorded-instrument filters (has_mortgage,
     mortgage_since, mortgage_min, mortgage_max, has_lien), which are skipped
     when it is None or the instrument tables are absent."""
@@ -117,8 +145,12 @@ def build_filters(args, conn=None):
 
     add("county", args.get("county"))
     add("dataset_type", args.get("dataset_type"))
-    add("zoning_code", args.get("zoning_code"))
-    add("land_use_code", args.get("land_use_code"))
+    # Code filters are multi-select: a row matches any of the chosen codes.
+    for col in ("zoning_code", "land_use_code"):
+        codes = arg_list(args, col, MAX_FILTER_CODES)
+        if codes:
+            clauses.append(f"{col} IN ({', '.join('?' * len(codes))})")
+            params.extend(codes)
     add("acreage", args.get("min_acreage"), ">=", float)
     add("acreage", args.get("max_acreage"), "<=", float)
     add("total_value", args.get("min_value"), ">=", float)
@@ -291,7 +323,14 @@ _facets_lock = threading.Lock()
 
 
 def _facets_key(args):
-    return json.dumps(sorted((k, v) for k, v in args.items() if v not in (None, "")))
+    # Every value of a repeated parameter is part of the key (MultiDict.items()
+    # would only yield the first); single values keep their old key form.
+    items = []
+    for k in (args.keys() if hasattr(args, "getlist") else args):
+        vals = sorted(arg_list(args, k))
+        if vals:
+            items.append((k, vals[0] if len(vals) == 1 else vals))
+    return json.dumps(sorted(items))
 
 
 def _facets_disk_path():
@@ -427,15 +466,21 @@ def filter_counts(conn, args):
     """Upper bound on matching rows per county (ignoring the county filter) and
     per dataset (ignoring the dataset filter) for the categorical filters:
     dataset, zoning code, land-use code and the recorded-instrument filters.
-    Each constraint is applied independently and the minimum taken, so a
+    A multi-code selection counts the rows of all its codes (each row has one
+    code, so the sum is exact per dataset). Each constraint is applied
+    independently and the minimum taken, so a
     zero is certain but a positive count may still over-estimate. Ranges and
     free text are not considered. The UI greys out zero choices."""
     cc = _cached("code_counts", lambda: compute_code_counts(conn))
     rec = _cached("availability", lambda: compute_availability(conn))["recordings"]
     dt_arg = args.get("dataset_type") or ""
-    zoning = args.get("zoning_code") or ""
-    land_use = args.get("land_use_code") or ""
+    zoning = arg_list(args, "zoning_code", MAX_FILTER_CODES)
+    land_use = arg_list(args, "land_use_code", MAX_FILTER_CODES)
     needs = _recording_needs(args)
+
+    def code_rows(key, county, d, codes):
+        per_code = cc[key].get(county, {}).get(d, {})
+        return sum(per_code.get(c, 0) for c in codes)
 
     def bound(county, dtype):
         ds = cc["datasets"].get(county, {})
@@ -443,9 +488,9 @@ def filter_counts(conn, args):
         for d in ([dtype] if dtype else list(ds)):
             n = ds.get(d, 0)
             if zoning:
-                n = min(n, cc["zoning"].get(county, {}).get(d, {}).get(zoning, 0))
+                n = min(n, code_rows("zoning", county, d, zoning))
             if land_use:
-                n = min(n, cc["land_use"].get(county, {}).get(d, {}).get(land_use, 0))
+                n = min(n, code_rows("land_use", county, d, land_use))
             if needs:
                 r = rec.get(county)
                 if not r or any(r[k] <= 0 for k in needs):

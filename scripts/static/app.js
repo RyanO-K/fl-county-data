@@ -6,8 +6,8 @@
 const state = {
   county: "",
   dataset_type: "",
-  zoning_code: "",
-  land_use_code: "",
+  zoning_code: [], // multi-select: a row matches any chosen code
+  land_use_code: [],
   min_acreage: "",
   max_acreage: "",
   // Recorded-instrument filters. Shown when the database carries the clerk
@@ -65,9 +65,17 @@ async function fetchJSON(url) {
 function qs(params) {
   const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v !== "" && v !== null && v !== undefined) usp.set(k, v);
+    // Arrays become a repeated parameter (?zoning_code=A&zoning_code=B).
+    for (const item of Array.isArray(v) ? v : [v]) {
+      if (item !== "" && item !== null && item !== undefined) usp.append(k, item);
+    }
   }
   return usp.toString();
+}
+
+/* Values chosen in a <select multiple>. */
+function selectedValues(sel) {
+  return [...sel.selectedOptions].map((o) => o.value);
 }
 
 function currentFilterParams(extra) {
@@ -322,8 +330,8 @@ async function refreshFilterCounts() {
   const params = {
     county: document.getElementById("f-county").value,
     dataset_type: document.getElementById("f-dataset").value,
-    zoning_code: document.getElementById("f-zoning").value,
-    land_use_code: document.getElementById("f-landuse").value,
+    zoning_code: selectedValues(document.getElementById("f-zoning")),
+    land_use_code: selectedValues(document.getElementById("f-landuse")),
     has_mortgage: document.getElementById("f-has-mtg").value,
     has_lien: document.getElementById("f-lien").checked ? "1" : "",
     mortgage_since: document.getElementById("f-mtg-since").value,
@@ -405,9 +413,25 @@ function setFacetsPending(sel, pending) {
   // code list is being refreshed. Unfiltered facets scan the whole table
   // and can take minutes on a cold cache, so nothing waits on this.
   sel.disabled = pending;
-  const first = sel.options[0];
-  if (first && first.value === "") first.textContent = pending ? "Loading codes..." : "All";
-  sel.title = pending ? "Loading the code list for this selection..." : "";
+  sel.dataset.pending = pending ? "1" : "";
+  if (pending) setMultiSelectOpen(sel, false); // its list is about to change
+  renderMultiSelect(sel);
+}
+
+/* Replaces a code multi-select's options, keeping whichever of the chosen
+ * codes still exist. Returns true when a chosen code disappeared. */
+function fillCodeOptions(sel, rows, codeKey, descKey) {
+  const prev = new Set(selectedValues(sel));
+  sel.replaceChildren(...rows.map((r) => {
+    const code = r[codeKey];
+    const desc = r[descKey] || "";
+    const opt = new Option(desc ? `${code} - ${truncate(desc, 40)}` : code, code);
+    opt.dataset.desc = desc;
+    opt.selected = prev.has(code); // not defaultSelected, so form reset clears it
+    return opt;
+  }));
+  renderMultiSelect(sel);
+  return selectedValues(sel).length !== prev.size;
 }
 
 /* Fills the zoning / land-use code dropdowns for the current county and
@@ -420,8 +444,6 @@ async function loadFacets() {
     dataset_type: document.getElementById("f-dataset").value,
   });
   const seq = ++facetsSeq;
-  const prevZ = zoningSel.value;
-  const prevL = landuseSel.value;
   setFacetsPending(zoningSel, true);
   setFacetsPending(landuseSel, true);
   let data;
@@ -436,19 +458,184 @@ async function loadFacets() {
   setFacetsPending(landuseSel, false);
   if (!data) return;
 
-  zoningSel.innerHTML = '<option value="">All</option>' +
-    data.zoning_codes
-      .map((z) => `<option value="${z.zoning_code}">${z.zoning_code}${z.zoning_desc ? " - " + truncate(z.zoning_desc, 40) : ""}</option>`)
-      .join("");
-  zoningSel.value = data.zoning_codes.some((z) => z.zoning_code === prevZ) ? prevZ : "";
-
-  landuseSel.innerHTML = '<option value="">All</option>' +
-    data.land_use_codes
-      .map((l) => `<option value="${l.land_use_code}">${l.land_use_code}${l.land_use_desc ? " - " + truncate(l.land_use_desc, 40) : ""}</option>`)
-      .join("");
-  landuseSel.value = data.land_use_codes.some((l) => l.land_use_code === prevL) ? prevL : "";
+  const lostZ = fillCodeOptions(zoningSel, data.zoning_codes, "zoning_code", "zoning_desc");
+  const lostL = fillCodeOptions(landuseSel, data.land_use_codes, "land_use_code", "land_use_desc");
   // A code that vanished with the new county/dataset changes what can match.
-  if (zoningSel.value !== prevZ || landuseSel.value !== prevL) refreshFilterCounts();
+  if (lostZ || lostL) {
+    refreshFilterCounts();
+    if (typeof updateFilterCounts === "function") updateFilterCounts();
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Code multi-selects: a searchable checkbox list layered over a hidden
+ * <select multiple>, which stays the source of truth (form reset, filter
+ * badges and chips all read it).
+ * ------------------------------------------------------------------- */
+const multiSelects = new Map(); // select id -> {box, trigger, summary, panel, search, list, count, empty}
+
+function initMultiSelects() {
+  document.querySelectorAll("[data-multiselect]").forEach((box) => {
+    const sel = document.getElementById(box.dataset.multiselect);
+    const labelId = sel.getAttribute("aria-labelledby");
+    const ui = document.createElement("div");
+    ui.className = "fms-ui";
+    ui.dataset.notFilter = ""; // the search box and checkboxes are not filters themselves
+    ui.innerHTML = `
+      <button type="button" class="fms-trigger" aria-expanded="false" aria-controls="${sel.id}-panel"
+              aria-labelledby="${labelId} ${sel.id}-summary">
+        <span class="fms-summary" id="${sel.id}-summary">All</span>
+        <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <div class="fms-panel" id="${sel.id}-panel" hidden>
+        <input type="search" class="fms-search" placeholder="Search codes" aria-label="Search codes" autocomplete="off">
+        <div class="fms-actions">
+          <button type="button" data-act="all">Select shown</button>
+          <button type="button" data-act="none">Clear</button>
+          <span class="fms-count"></span>
+        </div>
+        <div class="fms-list" role="group" aria-labelledby="${labelId}"></div>
+        <p class="fms-empty" hidden></p>
+      </div>`;
+    box.appendChild(ui);
+    const w = {
+      box, trigger: ui.querySelector(".fms-trigger"), summary: ui.querySelector(".fms-summary"),
+      panel: ui.querySelector(".fms-panel"), search: ui.querySelector(".fms-search"),
+      list: ui.querySelector(".fms-list"), count: ui.querySelector(".fms-count"), empty: ui.querySelector(".fms-empty"),
+    };
+    multiSelects.set(sel.id, w);
+
+    const changed = () => sel.dispatchEvent(new Event("change", { bubbles: true }));
+    w.trigger.addEventListener("click", () => setMultiSelectOpen(sel, w.panel.hidden));
+    w.search.addEventListener("input", () => filterMultiSelectList(sel));
+    w.list.addEventListener("change", (ev) => {
+      const opt = [...sel.options].find((o) => o.value === ev.target.value);
+      if (opt) { opt.selected = ev.target.checked; changed(); }
+    });
+    ui.querySelector('[data-act="all"]').addEventListener("click", () => {
+      for (const row of w.list.children) {
+        if (!row.hidden) row.querySelector("input").checked = true;
+      }
+      const on = new Set([...w.list.querySelectorAll("input:checked")].map((cb) => cb.value));
+      for (const o of sel.options) o.selected = on.has(o.value);
+      changed();
+    });
+    ui.querySelector('[data-act="none"]').addEventListener("click", () => {
+      for (const o of sel.options) o.selected = false;
+      changed();
+    });
+    // Escape closes the panel (from the trigger too) without also closing the drawer.
+    ui.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && !w.panel.hidden) {
+        ev.stopPropagation();
+        setMultiSelectOpen(sel, false);
+        w.trigger.focus();
+      }
+    });
+    // Enter in the search box ticks the single remaining match instead of submitting.
+    w.search.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      const shown = [...w.list.children].filter((r) => !r.hidden);
+      if (shown.length === 1) shown[0].querySelector("input").click();
+    });
+    sel.addEventListener("change", () => renderMultiSelect(sel));
+    renderMultiSelect(sel);
+  });
+
+  document.addEventListener("pointerdown", (ev) => {
+    for (const [id, w] of multiSelects) {
+      if (!w.panel.hidden && !w.box.contains(ev.target)) setMultiSelectOpen(document.getElementById(id), false);
+    }
+  });
+  // Form reset deselects the options without firing change; redraw after it.
+  document.getElementById("filters").addEventListener("reset", () => {
+    setTimeout(() => {
+      for (const id of multiSelects.keys()) {
+        const sel = document.getElementById(id);
+        setMultiSelectOpen(sel, false);
+        renderMultiSelect(sel);
+      }
+    }, 0);
+  });
+  document.getElementById("filters").addEventListener("submit", () => {
+    for (const id of multiSelects.keys()) setMultiSelectOpen(document.getElementById(id), false);
+  });
+}
+
+function setMultiSelectOpen(sel, open) {
+  const w = multiSelects.get(sel.id);
+  if (!w || (open && sel.disabled)) return;
+  w.panel.hidden = !open;
+  w.trigger.setAttribute("aria-expanded", String(open));
+  if (open) {
+    w.search.value = "";
+    renderMultiSelect(sel);
+    w.search.focus();
+  }
+}
+
+/* Redraws the trigger summary and, when the panel is open, the checkbox list. */
+function renderMultiSelect(sel) {
+  const w = multiSelects.get(sel.id);
+  if (!w) return;
+  const chosen = [...sel.selectedOptions];
+  const pending = sel.dataset.pending === "1";
+  w.trigger.disabled = sel.disabled;
+  w.trigger.classList.toggle("has-value", chosen.length > 0);
+  if (pending) w.summary.textContent = "Loading codes...";
+  else if (!chosen.length) w.summary.textContent = "All";
+  else if (chosen.length === 1) w.summary.textContent = chosen[0].text;
+  else w.summary.textContent = `${chosen.length} codes: ${chosen.map((o) => o.value).join(", ")}`;
+  w.trigger.title = pending ? "Loading the code list for this selection..."
+    : chosen.map((o) => o.text).join("\n");
+  if (w.panel.hidden) return;
+
+  const on = new Set(chosen.map((o) => o.value));
+  // Same code list as drawn: only sync the ticks, so the focused checkbox
+  // (keyboard users) and the scroll position survive a change.
+  const key = [...sel.options].map((o) => `${o.value}\u0001${o.dataset.desc || ""}`).join("\u0000");
+  if (w.drawnKey === key && w.list.children.length === sel.options.length) {
+    for (const cb of w.list.querySelectorAll("input")) cb.checked = on.has(cb.value);
+    filterMultiSelectList(sel);
+    return;
+  }
+  w.drawnKey = key;
+  w.list.replaceChildren(...[...sel.options].map((o) => {
+    const row = document.createElement("label");
+    row.className = "fms-opt";
+    row.title = o.dataset.desc ? `${o.value} - ${o.dataset.desc}` : o.value;
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = o.value;
+    cb.checked = on.has(o.value);
+    const code = document.createElement("span");
+    code.className = "fms-code";
+    code.textContent = o.value;
+    row.append(cb, code);
+    if (o.dataset.desc) {
+      const desc = document.createElement("span");
+      desc.className = "fms-desc";
+      desc.textContent = o.dataset.desc;
+      row.append(desc);
+    }
+    return row;
+  }));
+  filterMultiSelectList(sel);
+}
+
+function filterMultiSelectList(sel) {
+  const w = multiSelects.get(sel.id);
+  const needle = w.search.value.trim().toLowerCase();
+  let shown = 0;
+  for (const row of w.list.children) {
+    row.hidden = !!needle && !row.title.toLowerCase().includes(needle);
+    if (!row.hidden) shown += 1;
+  }
+  const n = sel.selectedOptions.length;
+  w.count.textContent = n ? `${n} selected` : "";
+  w.empty.hidden = shown > 0;
+  w.empty.textContent = sel.options.length ? "No codes match." : "No codes for this selection.";
 }
 
 function truncate(s, n) {
@@ -1664,8 +1851,8 @@ async function ensureValuesLoaded() {
 function readFiltersFromForm() {
   state.county = document.getElementById("f-county").value;
   state.dataset_type = document.getElementById("f-dataset").value;
-  state.zoning_code = document.getElementById("f-zoning").value;
-  state.land_use_code = document.getElementById("f-landuse").value;
+  state.zoning_code = selectedValues(document.getElementById("f-zoning"));
+  state.land_use_code = selectedValues(document.getElementById("f-landuse"));
   state.min_acreage = document.getElementById("f-min-acre").value;
   state.max_acreage = document.getElementById("f-max-acre").value;
   state.has_mortgage = document.getElementById("f-has-mtg").value;
@@ -1767,6 +1954,7 @@ function initEvents() {
 }
 
 async function init() {
+  initMultiSelects(); // before anything renders or fills the code lists
   initEvents();
   // The status page has no dependency on the browse bootstrap below, and that
   // bootstrap can take a while when a sync is hammering the database, so start
@@ -1933,6 +2121,12 @@ function chipLabel(el) {
 }
 function chipValue(el) {
   if (el.type === "checkbox") return null;
+  if (el.tagName === "SELECT" && el.multiple) {
+    const chosen = [...el.selectedOptions];
+    if (chosen.length === 1) return chosen[0].text;
+    const codes = chosen.slice(0, 3).map((o) => o.value).join(", ");
+    return chosen.length > 3 ? `${codes} +${chosen.length - 3}` : codes;
+  }
   if (el.tagName === "SELECT") {
     const opt = el.options[el.selectedIndex];
     return opt ? opt.text : el.value;
@@ -1944,7 +2138,9 @@ function chipValue(el) {
   return el.value;
 }
 function clearField(el) {
-  if (el.type === "checkbox") el.checked = false; else el.value = "";
+  if (el.type === "checkbox") el.checked = false;
+  else if (el.tagName === "SELECT" && el.multiple) for (const o of el.options) o.selected = false;
+  else el.value = "";
   // County selects drive dependent dropdowns through their change handlers.
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
