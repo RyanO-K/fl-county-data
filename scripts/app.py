@@ -27,6 +27,9 @@ import etl  # noqa: E402  (same folder)
 import recordings  # noqa: E402
 DB_PATH = etl.DB_PATH
 SOURCES_PATH = BASE_DIR / "scripts" / "sources.json"
+# Descriptions for land-use codes whose source layer has none (Orange); built
+# by scripts/fetch_code_descriptions.py, applied at display time only.
+CODE_DESCRIPTIONS_PATH = BASE_DIR / "scripts" / "code_descriptions.json"
 DOR_LAYER_URL = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
                  "Florida_Statewide_Cadastral/FeatureServer/0")
 
@@ -298,6 +301,65 @@ def api_sources():
                     "name": "Florida Statewide Cadastral (FDOR tax roll), State Geographic Information Office"}})
 
 
+_code_desc_cache = {"key": None, "data": {}}
+
+
+def load_code_descriptions():
+    """Parsed CODE_DESCRIPTIONS_PATH, re-read only when its path or mtime
+    changes. A missing or unreadable file means no descriptions ({})."""
+    path = CODE_DESCRIPTIONS_PATH
+    try:
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return {}
+    if _code_desc_cache["key"] != key:
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        _code_desc_cache.update(key=key, data=data if isinstance(data, dict) else {})
+    return _code_desc_cache["data"]
+
+
+def describe_code(county, dataset_type, code, descriptions=None):
+    """Plain-English meaning of a land-use code from code_descriptions.json,
+    or None. With no dataset_type every dataset of the county is tried
+    (parcels first). A dataset marked dor_fallback falls back to the statewide
+    DOR category of the code's first two digits. Callers describing many rows
+    pass `descriptions` (load_code_descriptions(), fetched once) to skip the
+    per-call mtime check."""
+    if not county or not code:
+        return None
+    data = load_code_descriptions() if descriptions is None else descriptions
+    if county.startswith("_") or county == "dor_categories":
+        return None
+    datasets = data.get(county)
+    if not isinstance(datasets, dict):
+        return None
+    if dataset_type:
+        names = [dataset_type]
+    else:
+        names = sorted(datasets, key=lambda n: (n != "parcels", n))
+    code = str(code)
+    tried = []
+    for name in names:
+        ds = datasets.get(name)
+        if not isinstance(ds, dict):
+            continue
+        desc = (ds.get("land_use") or {}).get(code)
+        if desc:
+            return desc
+        tried.append(ds)
+    # Only after no dataset matched exactly, so a named code always beats
+    # a category guess.
+    prefix = code[:2]
+    if len(prefix) == 2 and prefix.isdigit():
+        category = (data.get("dor_categories") or {}).get(prefix)
+        if category and any(ds.get("dor_fallback") for ds in tried):
+            return f"{category} (DOR category {prefix})"
+    return None
+
+
 @app.route("/favicon.ico")
 def favicon():
     return ("", 204)
@@ -564,8 +626,27 @@ threading.Thread(target=warm_facets, name="facets-warmup", daemon=True).start()
 def api_facets():
     """Distinct zoning/land-use codes for the current county+dataset_type
     selection, to populate filter dropdowns with real values. Cached per
-    filter combination for FACETS_TTL seconds."""
-    return jsonify(cached_facets(get_db(), request.args))
+    filter combination for FACETS_TTL seconds.
+
+    With a county selected, land-use codes the source left undescribed get a
+    description from code_descriptions.json (see describe_code). That is done
+    here on a copy rather than in compute_facets, whose results are persisted
+    by DB stamp and would go stale when the JSON changes. Without a county
+    codes from different counties can collide, so nothing is filled."""
+    facets = cached_facets(get_db(), request.args)
+    county = request.args.get("county") or ""
+    if county:
+        dataset_type = request.args.get("dataset_type") or ""
+        descriptions = load_code_descriptions()
+        codes = []
+        for entry in facets.get("land_use_codes", []):
+            if not entry.get("land_use_desc"):
+                desc = describe_code(county, dataset_type, entry.get("land_use_code"), descriptions)
+                if desc:
+                    entry = {**entry, "land_use_desc": desc}
+            codes.append(entry)
+        facets = {**facets, "land_use_codes": codes}
+    return jsonify(facets)
 
 
 @app.route("/api/availability")
@@ -622,8 +703,9 @@ def api_features():
         params + [limit, offset],
     ).fetchall()
 
+    descriptions = load_code_descriptions()
     return jsonify({
-        "rows": [row_dict(r) for r in rows],
+        "rows": [row_dict(r, descriptions) for r in rows],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -635,13 +717,21 @@ def api_features():
 JSON_COLUMNS = ("geometry_geojson", "attributes_json")
 
 
-def row_dict(row):
+def row_dict(row, descriptions=None):
     """sqlite3.Row -> dict with the compressed JSON columns decoded to text,
-    which is what the front end has always received."""
+    which is what the front end has always received. A blank land_use_desc
+    is filled from code_descriptions.json (describe_code) when the row
+    carries its county, dataset and code; a source description always wins.
+    Pass `descriptions` when converting many rows (see describe_code)."""
     d = dict(row)
     for k in JSON_COLUMNS:
         if k in d:
             d[k] = etl.decode_json(d[k])
+    if "land_use_desc" in d and not d["land_use_desc"] and d.get("land_use_code"):
+        desc = describe_code(d.get("county"), d.get("dataset_type"), d["land_use_code"],
+                             descriptions)
+        if desc:
+            d["land_use_desc"] = desc
     return d
 
 
@@ -675,7 +765,8 @@ def api_features_geometry():
         f"SELECT {cols} FROM features {clause} ORDER BY id LIMIT ?",
         params + [after_id, limit],
     ).fetchall()
-    rows = [row_dict(r) for r in rows]
+    descriptions = load_code_descriptions()
+    rows = [row_dict(r, descriptions) for r in rows]
     return jsonify({
         "rows": rows,
         "total": total,
