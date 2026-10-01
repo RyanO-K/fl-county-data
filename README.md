@@ -316,17 +316,16 @@ and mailing attributes are still dropped from `attributes_json`
 Live at https://fl-county-data.onrender.com (source: this repo). The full
 database is too large for a free host, so the public site runs a subset of
 whole counties (boundaries rounded to 6 decimals, raw parcel attributes
-dropped); everything else is identical to the local build, including the
-clerk instruments for Hernando and Hillsborough. The current demo (2026-09-19)
-holds 51 of the 60 counties whose parcel boundaries were complete: all 13
-priority metros plus the smallest of the rest (6.2M features, 5.4M valued
-parcels, 297k instruments; 5.1 GB uncompressed, 1.6 GB gzipped, under
-GitHub's 2 GB release-asset limit). Size estimates from `county_sizes` run
-about 1.8x under the real file with attributes off.
+dropped); everything else is identical to the local build. The current demo
+(2026-09-30) is limited to six Central Florida counties: Orange, Lake,
+Osceola, Volusia, Polk and Marion (2.6M features, 1.9M valued parcels; 2.1 GB
+uncompressed, 0.8 GB gzipped). None of the six has clerk instruments loaded.
+Size estimates from `county_sizes` run about 1.8x under the real file with
+attributes off.
 
-1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --budget-mb 2830 --require-parcels --parcel-attrs off`
-   (priority metros first, then smallest-first, complete counties only; or
-   `--counties a,b,c` for an explicit list) then `gzip -k demo/fl_county_demo.db`.
+1. `python scripts/make_demo_db.py --out demo/fl_county_demo.db --counties orange,lake,osceola,volusia,polk,marion --parcel-attrs off`
+   (or `--budget-mb N --require-parcels` to pick priority metros first, then
+   smallest-first, complete counties only) then `gzip -k demo/fl_county_demo.db`.
 2. Attach the `.gz` to the GitHub Release tagged `demo-data`
    (`gh release upload demo-data demo/fl_county_demo.db.gz --clobber`).
 3. `render.yaml` defines the Render free web service. Its build step runs
