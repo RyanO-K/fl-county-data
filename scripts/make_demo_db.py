@@ -81,6 +81,28 @@ def county_sizes(src, require_parcels=False, parcel_attrs=True):
 DEMO_RECORDING_TABLES = ("recorded_instruments", "instrument_parcels")
 
 
+def copy_ag_enclaves(results_path, dst, counties):
+    """Copy the ag enclaves (app.ENCLAVE_WHERE) for `counties` from
+    ag_encroachment.py's output into an ag_enclaves table, which the app reads
+    in place of the results file. Returns the row count (0 without results)."""
+    results_path = Path(results_path)
+    if not results_path.exists():
+        return 0
+    res = sqlite3.connect(f"file:{results_path.as_posix()}?mode=ro", uri=True, timeout=60)
+    try:
+        ph = ",".join("?" * len(counties))
+        rows = res.execute(f"SELECT county, feature_id FROM results WHERE county IN ({ph}) "
+                           "AND surrounded = 1 AND ag_by_zoning = 1", list(counties)).fetchall()
+    except sqlite3.Error:
+        return 0
+    finally:
+        res.close()
+    dst.execute("CREATE TABLE IF NOT EXISTS ag_enclaves (county TEXT NOT NULL, feature_id INTEGER NOT NULL, "
+                "PRIMARY KEY (county, feature_id))")
+    dst.executemany("INSERT OR REPLACE INTO ag_enclaves VALUES (?, ?)", rows)
+    return len(rows)
+
+
 def schema_statements(src):
     """CREATE statements to replay in the demo, minus the private owner /
     recording tables (and their indexes), which never leave the local
@@ -104,6 +126,9 @@ def main():
     ap.add_argument("--parcel-attrs", choices=("keep", "off"), default="keep",
                     help="off: drop raw attributes_json on parcel rows (values, acreage, use codes and geometry "
                          "stay); metro layers carry ~100 fields per parcel, which dominates the size")
+    ap.add_argument("--ag-results", default=None,
+                    help="ag_encroachment.py output to take the ag enclaves from "
+                         "(default: ag_encroachment.db next to --source)")
     args = ap.parse_args()
 
     src = sqlite3.connect(f"file:{Path(args.source).as_posix()}?mode=ro", uri=True, timeout=120)
@@ -180,6 +205,9 @@ def main():
             dst.executemany(f"INSERT INTO {tbl} ({', '.join(tcols)}) VALUES ({','.join('?'*len(tcols))})", rows)
             k += len(rows)
         print(f"{tbl}: {k:,}")
+
+    ag_results = args.ag_results or Path(args.source).with_name("ag_encroachment.db")
+    print(f"ag_enclaves: {copy_ag_enclaves(ag_results, dst, chosen):,}")
 
     scols = [r[1] for r in src.execute("PRAGMA table_info(sync_log)")]
     # Owner runs stay local with their table; recordings runs ship with the

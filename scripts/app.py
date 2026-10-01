@@ -33,6 +33,9 @@ CODE_DESCRIPTIONS_PATH = BASE_DIR / "scripts" / "code_descriptions.json"
 # Agricultural zoning codes per county, for the "Agricultural zoning" preset;
 # built by scripts/build_ag_zoning_codes.py.
 AG_ZONING_PATH = BASE_DIR / "scripts" / "ag_zoning_codes.json"
+# Output of scripts/ag_encroachment.py, attached read-only for the "Ag enclaves"
+# filter. The demo database carries its own ag_enclaves table instead.
+AG_RESULTS_PATH = Path(os.environ.get("FL_AG_RESULTS") or etl.DB_PATH.with_name("ag_encroachment.db"))
 DOR_LAYER_URL = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
                  "Florida_Statewide_Cadastral/FeatureServer/0")
 
@@ -205,6 +208,37 @@ def preset_clause(args):
     return "(" + " OR ".join(parts) + ")", params
 
 
+# Ag enclaves (?ag_enclave=1): parcels in an agricultural zoning district
+# (ag_zoning_codes.json) whose ring ag_encroachment.py found developed.
+ENCLAVE_WHERE = "surrounded = 1 AND ag_by_zoning = 1"
+
+
+def enclave_source(conn):
+    """SELECT yielding the (county, feature_id) of every ag enclave, or None
+    when there are no results. The demo database's ag_enclaves table wins;
+    otherwise AG_RESULTS_PATH is attached read-only as `ag`."""
+    if has_table(conn, "ag_enclaves"):
+        return "SELECT county, feature_id FROM ag_enclaves"
+    path = AG_RESULTS_PATH
+    if not path.exists():
+        return None
+    try:
+        if not any(r[1] == "ag" for r in conn.execute("PRAGMA database_list")):
+            conn.execute("ATTACH DATABASE ? AS ag", (f"file:{path.as_posix()}?mode=ro",))
+        conn.execute("SELECT 1 FROM ag.results LIMIT 0")
+    except sqlite3.Error:
+        return None
+    return f"SELECT county, feature_id FROM ag.results WHERE {ENCLAVE_WHERE}"
+
+
+def enclave_counts(conn):
+    """{county: enclave count}, or None when there are no results."""
+    src = enclave_source(conn)
+    if src is None:
+        return None
+    return dict(conn.execute(f"SELECT county, COUNT(*) FROM ({src}) GROUP BY county").fetchall())
+
+
 def build_filters(args, conn=None):
     """Translate query-string filters into a WHERE clause + params list.
 
@@ -213,9 +247,11 @@ def build_filters(args, conn=None):
     preset=ag_zoning keeps rows whose (county, zoning_code) is an agricultural
     district per ag_zoning_codes.json (see preset_clause); it is ANDed with
     everything else, including an explicit zoning_code selection.
+    ag_enclave=1 keeps the ag enclaves (see enclave_source); with no results
+    on file it matches nothing.
     `conn` is only needed for the recorded-instrument filters (has_mortgage,
-    mortgage_since, mortgage_min, mortgage_max, has_lien), which are skipped
-    when it is None or the instrument tables are absent."""
+    mortgage_since, mortgage_min, mortgage_max, has_lien) and ag_enclave,
+    which are skipped when it is None or their tables are absent."""
     clauses = []
     params = []
 
@@ -246,6 +282,10 @@ def build_filters(args, conn=None):
     add("acreage", args.get("max_acreage"), "<=", float)
     add("total_value", args.get("min_value"), ">=", float)
     add("total_value", args.get("max_value"), "<=", float)
+
+    if conn is not None and args.get("ag_enclave") == "1":
+        src = enclave_source(conn)
+        clauses.append(f"(features.county, features.id) IN ({src})" if src else "0")
 
     q = (args.get("q") or "").strip()
     if q:
@@ -622,7 +662,8 @@ def _recording_needs(args):
 def filter_counts(conn, args):
     """Upper bound on matching rows per county (ignoring the county filter) and
     per dataset (ignoring the dataset filter) for the categorical filters:
-    dataset, zoning code, land-use code, preset and the recorded-instrument filters.
+    dataset, zoning code, land-use code, preset, ag enclaves and the
+    recorded-instrument filters.
     A multi-code selection counts the rows of all its codes (each row has one
     code, so the sum is exact per dataset). Each constraint is applied
     independently and the minimum taken, so a
@@ -638,6 +679,8 @@ def filter_counts(conn, args):
     # ignored here like everywhere in this function). A county missing from
     # the preset can match nothing.
     preset = preset_codes((args.get("preset") or "").strip())
+    # Ag enclaves are parcels only; no results on file means none anywhere.
+    enclaves = (enclave_counts(conn) or {}) if args.get("ag_enclave") == "1" else None
 
     def code_rows(key, county, d, codes):
         per_code = cc[key].get(county, {}).get(d, {})
@@ -662,6 +705,8 @@ def filter_counts(conn, args):
                 n = min(n, code_rows("zoning", county, d, codes))
             if land_use:
                 n = min(n, code_rows("land_use", county, d, land_use))
+            if enclaves is not None:
+                n = min(n, enclaves.get(county, 0)) if d == "parcels" else 0
             if needs:
                 r = rec.get(county)
                 if not r or any(r[k] <= 0 for k in needs):
@@ -775,6 +820,14 @@ def api_presets():
         per_county = preset_codes(name) or {}
         out[name] = {"label": label, "counties": {c: len(v) for c, v in per_county.items()}}
     return jsonify(out)
+
+
+@app.route("/api/ag_enclaves")
+def api_ag_enclaves():
+    """Whether ag-enclave results exist and how many enclaves per county
+    (the checkbox's availability and hint)."""
+    counts = enclave_counts(get_db())
+    return jsonify({"available": counts is not None, "counties": counts or {}})
 
 
 @app.route("/api/filter_counts")

@@ -18,6 +18,7 @@ const state = {
   mortgage_min: "",
   mortgage_max: "",
   has_lien: "",
+  ag_enclave: "", // "1": only ag-zoned parcels surrounded by development
   q: "",
   page: 1,
   per_page: 50,
@@ -93,6 +94,7 @@ function currentFilterParams(extra) {
     mortgage_min: state.mortgage_min,
     mortgage_max: state.mortgage_max,
     has_lien: state.has_lien,
+    ag_enclave: state.ag_enclave,
     q: state.q,
   }, extra || {});
 }
@@ -337,6 +339,7 @@ async function refreshFilterCounts() {
     land_use_code: selectedValues(document.getElementById("f-landuse")),
     has_mortgage: document.getElementById("f-has-mtg").value,
     has_lien: document.getElementById("f-lien").checked ? "1" : "",
+    ag_enclave: document.getElementById("f-enclave").checked ? "1" : "",
     mortgage_since: document.getElementById("f-mtg-since").value,
     mortgage_min: document.getElementById("f-mtg-min").value,
     mortgage_max: document.getElementById("f-mtg-max").value,
@@ -441,6 +444,34 @@ function updatePresetHint() {
     hint.textContent = `Judged county by county (${n.toLocaleString()} ${n === 1 ? "county" : "counties"} on file).`;
   }
   hint.hidden = false;
+}
+
+/* Ag enclaves (?ag_enclave=1): ag-zoned parcels that ag_encroachment.py
+ * found surrounded by development. /api/ag_enclaves says whether results
+ * exist (the checkbox is disabled without them) and how many per county. */
+let enclavesInfo = null;
+async function loadEnclaves() {
+  try {
+    enclavesInfo = await fetchJSON("/api/ag_enclaves");
+  } catch (err) {
+    console.warn("ag enclaves unavailable:", err);
+    enclavesInfo = null;
+  }
+  setDisabled(document.getElementById("f-enclave"), !(enclavesInfo && enclavesInfo.available));
+  updateEnclaveHint();
+}
+
+function updateEnclaveHint() {
+  const hint = document.getElementById("enclave-hint");
+  if (!enclavesInfo || !enclavesInfo.available) {
+    hint.textContent = "No encroachment results on file.";
+    return;
+  }
+  const counts = enclavesInfo.counties || {};
+  const county = document.getElementById("f-county").value;
+  const n = county ? (counts[county] || 0) : Object.values(counts).reduce((a, b) => a + b, 0);
+  hint.textContent = `Ag-zoned parcels surrounded by development: ${n.toLocaleString()}` +
+    (county ? ` in ${pretty(county)}.` : ` in ${Object.keys(counts).length.toLocaleString()} counties.`);
 }
 
 let facetsSeq = 0; // guards against a slow, superseded facets response landing late
@@ -1902,6 +1933,7 @@ function readFiltersFromForm() {
   state.mortgage_min = document.getElementById("f-mtg-min").value;
   state.mortgage_max = document.getElementById("f-mtg-max").value;
   state.has_lien = document.getElementById("f-lien").checked ? "1" : "";
+  state.ag_enclave = document.getElementById("f-enclave").checked ? "1" : "";
   state.q = document.getElementById("f-q").value;
   state.page = 1;
 }
@@ -1931,6 +1963,8 @@ function initEvents() {
   for (const id of ["f-zoning", "f-landuse"]) {
     document.getElementById(id).addEventListener("change", refreshFilterCounts);
   }
+  document.getElementById("f-enclave").addEventListener("change", refreshFilterCounts);
+  document.getElementById("f-county").addEventListener("change", updateEnclaveHint);
   for (const id of ["f-has-mtg", "f-lien", "f-mtg-since", "f-mtg-min", "f-mtg-max"]) {
     document.getElementById(id).addEventListener("change", applyAvailability);
   }
@@ -2007,6 +2041,7 @@ async function init() {
   await loadCombos();
   const availabilityReady = loadAvailability(); // greys out filters that can't match; never rejects
   loadPresets(); // only feeds the preset hint; never rejects
+  loadEnclaves(); // enables the ag-enclave checkbox when results exist; never rejects
   // The code dropdowns fill in whenever the facet scan finishes; the table
   // and map don't depend on them, so don't hold the first render for it.
   const facetsReady = loadFacets();
