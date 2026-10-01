@@ -3,3 +3,7 @@ requests==2.34.2
 urllib3==2.7.0
 gunicorn==23.0.0
 pytest==8.4.1
+# scripts/ag_encroachment.py (offline analysis; the web app does not import these)
+numpy==2.4.6
+shapely==2.1.2
+pyproj==3.7.2

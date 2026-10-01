@@ -4,6 +4,7 @@
  * State
  * ------------------------------------------------------------------- */
 const state = {
+  preset: "", // e.g. "ag_zoning": per-county zoning codes applied by the server
   county: "",
   dataset_type: "",
   zoning_code: [], // multi-select: a row matches any chosen code
@@ -80,6 +81,7 @@ function selectedValues(sel) {
 
 function currentFilterParams(extra) {
   return Object.assign({
+    preset: state.preset,
     county: state.county,
     dataset_type: state.dataset_type,
     zoning_code: state.zoning_code,
@@ -328,6 +330,7 @@ let filterCountsSeq = 0;
 async function refreshFilterCounts() {
   const seq = ++filterCountsSeq;
   const params = {
+    preset: document.getElementById("f-preset").value,
     county: document.getElementById("f-county").value,
     dataset_type: document.getElementById("f-dataset").value,
     zoning_code: selectedValues(document.getElementById("f-zoning")),
@@ -406,6 +409,40 @@ function applyAvailability() {
   refreshFilterCounts();
 }
 
+/* Preset filters (?preset=): the server applies them per county, so the
+ * select is the whole client-side state; /api/presets only feeds the hint
+ * under it (how many codes the preset uses where). */
+let presetsInfo = null; // from /api/presets; null until loaded (or if unavailable)
+async function loadPresets() {
+  try {
+    presetsInfo = await fetchJSON("/api/presets");
+  } catch (err) {
+    console.warn("presets unavailable:", err);
+    presetsInfo = null;
+  }
+  updatePresetHint();
+}
+
+function updatePresetHint() {
+  const hint = document.getElementById("preset-hint");
+  const preset = document.getElementById("f-preset").value;
+  const info = preset && presetsInfo && presetsInfo[preset];
+  if (!info) { hint.hidden = true; hint.textContent = ""; return; }
+  const county = document.getElementById("f-county").value;
+  const counts = info.counties || {};
+  const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? "" : "s"}`;
+  if (county) {
+    const n = counts[county] || 0;
+    hint.textContent = n
+      ? `${plural(n, "zoning code")} in ${pretty(county)}.`
+      : `No ${info.label.toLowerCase()} codes on file for ${pretty(county)}.`;
+  } else {
+    const n = Object.keys(counts).length;
+    hint.textContent = `Judged county by county (${n.toLocaleString()} ${n === 1 ? "county" : "counties"} on file).`;
+  }
+  hint.hidden = false;
+}
+
 let facetsSeq = 0; // guards against a slow, superseded facets response landing late
 
 function setFacetsPending(sel, pending) {
@@ -439,7 +476,11 @@ function fillCodeOptions(sel, rows, codeKey, descKey) {
 async function loadFacets() {
   const zoningSel = document.getElementById("f-zoning");
   const landuseSel = document.getElementById("f-landuse");
+  // With a preset on, the code lists narrow to what the preset can match
+  // (e.g. only the agricultural districts), since any other chosen zoning
+  // code would be ANDed away anyway.
   const params = qs({
+    preset: document.getElementById("f-preset").value,
     county: document.getElementById("f-county").value,
     dataset_type: document.getElementById("f-dataset").value,
   });
@@ -1849,6 +1890,7 @@ async function ensureValuesLoaded() {
  * Wiring
  * ------------------------------------------------------------------- */
 function readFiltersFromForm() {
+  state.preset = document.getElementById("f-preset").value;
   state.county = document.getElementById("f-county").value;
   state.dataset_type = document.getElementById("f-dataset").value;
   state.zoning_code = selectedValues(document.getElementById("f-zoning"));
@@ -1883,8 +1925,8 @@ function setView(view) {
 function initEvents() {
   // Re-evaluate what can still match whenever a choice that constrains the
   // others changes (county <-> dataset, recording filters <-> county/dataset).
-  for (const id of ["f-county", "f-dataset"]) {
-    document.getElementById(id).addEventListener("change", () => { applyAvailability(); loadFacets(); });
+  for (const id of ["f-preset", "f-county", "f-dataset"]) {
+    document.getElementById(id).addEventListener("change", () => { applyAvailability(); loadFacets(); updatePresetHint(); });
   }
   for (const id of ["f-zoning", "f-landuse"]) {
     document.getElementById(id).addEventListener("change", refreshFilterCounts);
@@ -1904,6 +1946,7 @@ function initEvents() {
   document.getElementById("f-reset").addEventListener("click", async () => {
     document.getElementById("filters").reset();
     applyAvailability();
+    updatePresetHint();
     readFiltersFromForm();
     loadFacets(); // refreshes the code dropdowns in the background
     await loadFeatures(false);
@@ -1963,6 +2006,7 @@ async function init() {
   await loadSources();
   await loadCombos();
   const availabilityReady = loadAvailability(); // greys out filters that can't match; never rejects
+  loadPresets(); // only feeds the preset hint; never rejects
   // The code dropdowns fill in whenever the facet scan finishes; the table
   // and map don't depend on them, so don't hold the first render for it.
   const facetsReady = loadFacets();

@@ -30,6 +30,9 @@ SOURCES_PATH = BASE_DIR / "scripts" / "sources.json"
 # Descriptions for land-use codes whose source layer has none (Orange); built
 # by scripts/fetch_code_descriptions.py, applied at display time only.
 CODE_DESCRIPTIONS_PATH = BASE_DIR / "scripts" / "code_descriptions.json"
+# Agricultural zoning codes per county, for the "Agricultural zoning" preset;
+# built by scripts/build_ag_zoning_codes.py.
+AG_ZONING_PATH = BASE_DIR / "scripts" / "ag_zoning_codes.json"
 DOR_LAYER_URL = ("https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/"
                  "Florida_Statewide_Cadastral/FeatureServer/0")
 
@@ -124,11 +127,92 @@ def arg_list(args, name, limit=None):
     return out
 
 
+# Preset filters: a named selection with per-county meaning (?preset=ag_zoning).
+# The same zoning code string means different districts in different counties
+# (Volusia's "A" vs Palm Beach's "A (city)"), so a preset is applied as
+# (county, zoning_code) pairs, never as a flat code list.
+PRESETS = {"ag_zoning": "Agricultural zoning"}
+# Most codes a preset binds as parameters (SQLite's limit is 32766 since 3.32;
+# the other filters bind at most ~1000). Beyond it the codes are inlined as
+# quoted SQL literals, which is only ever reached by a hand-edited JSON file.
+MAX_PRESET_BOUND = 20000
+
+_ag_zoning_cache = {"key": None, "data": {}}
+
+
+def load_ag_zoning():
+    """{county: [zoning_code, ...]} from AG_ZONING_PATH's "counties" section,
+    re-read only when its path or mtime changes. A missing, unreadable or
+    malformed file (or a malformed county entry) yields no codes ({})."""
+    path = AG_ZONING_PATH
+    try:
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return {}
+    if _ag_zoning_cache["key"] != key:
+        try:
+            raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raw = {}
+        counties = raw.get("counties") if isinstance(raw, dict) else None
+        data = {}
+        if isinstance(counties, dict):
+            for county, codes in counties.items():
+                if isinstance(county, str) and isinstance(codes, dict):
+                    kept = sorted(c for c in codes if isinstance(c, str) and c != "")
+                    if kept:
+                        data[county] = kept
+        _ag_zoning_cache.update(key=key, data=data)
+    return _ag_zoning_cache["data"]
+
+
+def preset_codes(preset, county=None):
+    """{county: [zoning codes]} a preset selects, limited to `county` when one
+    is given. None for an unknown (ignored) preset."""
+    if preset != "ag_zoning":
+        return None
+    codes = load_ag_zoning()
+    if county:
+        return {county: codes[county]} if county in codes else {}
+    return codes
+
+
+def _sql_literal(s):
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def preset_clause(args):
+    """(sql, params) for the ?preset= filter, or None when no known preset is
+    set. With nothing to match (the county has no agricultural codes, or the
+    JSON is missing) the clause is false rather than absent: the preset means
+    'only these districts', so it must not widen to every row."""
+    per_county = preset_codes((args.get("preset") or "").strip(), args.get("county") or "")
+    if per_county is None:
+        return None
+    if not per_county:
+        return "0", []
+    bind = sum(len(c) for c in per_county.values()) + len(per_county) <= MAX_PRESET_BOUND
+    parts, params = [], []
+    for county in sorted(per_county):
+        codes = per_county[county]
+        if bind:
+            parts.append(f"(county = ? AND zoning_code IN ({', '.join('?' * len(codes))}))")
+            params.append(county)
+            params.extend(codes)
+        else:
+            parts.append(f"(county = {_sql_literal(county)} AND zoning_code IN "
+                         f"({', '.join(_sql_literal(c) for c in codes)}))")
+    return "(" + " OR ".join(parts) + ")", params
+
+
 def build_filters(args, conn=None):
     """Translate query-string filters into a WHERE clause + params list.
 
     zoning_code and land_use_code are multi-select: repeat the parameter to
     match any of several codes (OR within a field, AND across fields).
+    preset=ag_zoning keeps rows whose (county, zoning_code) is an agricultural
+    district per ag_zoning_codes.json (see preset_clause); it is ANDed with
+    everything else, including an explicit zoning_code selection.
     `conn` is only needed for the recorded-instrument filters (has_mortgage,
     mortgage_since, mortgage_min, mortgage_max, has_lien), which are skipped
     when it is None or the instrument tables are absent."""
@@ -148,6 +232,10 @@ def build_filters(args, conn=None):
 
     add("county", args.get("county"))
     add("dataset_type", args.get("dataset_type"))
+    preset = preset_clause(args)
+    if preset:
+        clauses.append(preset[0])
+        params.extend(preset[1])
     # Code filters are multi-select: a row matches any of the chosen codes.
     for col in ("zoning_code", "land_use_code"):
         codes = arg_list(args, col, MAX_FILTER_CODES)
@@ -392,7 +480,14 @@ def _facets_key(args):
         vals = sorted(arg_list(args, k))
         if vals:
             items.append((k, vals[0] if len(vals) == 1 else vals))
-    return json.dumps(sorted(items))
+    if (args.get("preset") or "").strip() in PRESETS:
+        # The preset's codes live in a JSON file; a rebuilt file must not be
+        # answered from facets computed with the old codes.
+        try:
+            items.append(("_preset_file", AG_ZONING_PATH.stat().st_mtime_ns))
+        except OSError:
+            items.append(("_preset_file", None))
+    return json.dumps(sorted(items, key=lambda kv: kv[0]))
 
 
 def _facets_disk_path():
@@ -527,7 +622,7 @@ def _recording_needs(args):
 def filter_counts(conn, args):
     """Upper bound on matching rows per county (ignoring the county filter) and
     per dataset (ignoring the dataset filter) for the categorical filters:
-    dataset, zoning code, land-use code and the recorded-instrument filters.
+    dataset, zoning code, land-use code, preset and the recorded-instrument filters.
     A multi-code selection counts the rows of all its codes (each row has one
     code, so the sum is exact per dataset). Each constraint is applied
     independently and the minimum taken, so a
@@ -539,18 +634,32 @@ def filter_counts(conn, args):
     zoning = arg_list(args, "zoning_code", MAX_FILTER_CODES)
     land_use = arg_list(args, "land_use_code", MAX_FILTER_CODES)
     needs = _recording_needs(args)
+    # Preset: per-county zoning codes (all counties; the county filter is
+    # ignored here like everywhere in this function). A county missing from
+    # the preset can match nothing.
+    preset = preset_codes((args.get("preset") or "").strip())
 
     def code_rows(key, county, d, codes):
         per_code = cc[key].get(county, {}).get(d, {})
         return sum(per_code.get(c, 0) for c in codes)
 
+    def zoning_codes_for(county):
+        """Codes a row of this county may carry, or None for no constraint."""
+        if preset is None:
+            return zoning or None
+        allowed = preset.get(county, [])
+        if zoning:
+            allowed = [c for c in zoning if c in set(allowed)]
+        return allowed
+
     def bound(county, dtype):
         ds = cc["datasets"].get(county, {})
         total = 0
+        codes = zoning_codes_for(county)
         for d in ([dtype] if dtype else list(ds)):
             n = ds.get(d, 0)
-            if zoning:
-                n = min(n, code_rows("zoning", county, d, zoning))
+            if codes is not None:
+                n = min(n, code_rows("zoning", county, d, codes))
             if land_use:
                 n = min(n, code_rows("land_use", county, d, land_use))
             if needs:
@@ -655,6 +764,17 @@ def api_availability():
     match anything (see compute_availability). Cached like the facets."""
     conn = get_db()
     return jsonify(_cached("availability", lambda: compute_availability(conn)))
+
+
+@app.route("/api/presets")
+def api_presets():
+    """The preset filters and, per preset, how many zoning codes each county
+    contributes (the UI's hint), from ag_zoning_codes.json."""
+    out = {}
+    for name, label in PRESETS.items():
+        per_county = preset_codes(name) or {}
+        out[name] = {"label": label, "counties": {c: len(v) for c, v in per_county.items()}}
+    return jsonify(out)
 
 
 @app.route("/api/filter_counts")

@@ -62,6 +62,23 @@
 
     <form id="filters" class="filters" data-sidebar-for="browse" data-chips="browse-chips">
       <div class="filters-body">
+        <section class="fgroup" data-group="browse.presets">
+          <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-presets">
+            <span class="fgroup-title">Presets</span>
+            <span class="fgroup-dot" title="This section has an active filter"></span>
+            <svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <div class="fgroup-body" id="fg-browse-presets">
+            <label><span class="fl">Preset</span>
+              <select id="f-preset" data-chip="Preset" title="A ready-made selection applied county by county: the same zoning code can mean different districts in different counties">
+                <option value="">None</option>
+                <option value="ag_zoning">Agricultural zoning</option>
+              </select>
+            </label>
+            <p class="fhint" id="preset-hint" hidden></p>
+          </div>
+        </section>
+
         <section class="fgroup" data-group="browse.location">
           <button type="button" class="fgroup-head" aria-expanded="true" aria-controls="fg-browse-location">
             <span class="fgroup-title">Location</span>
