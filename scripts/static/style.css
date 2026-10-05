@@ -201,12 +201,16 @@ td.status-badge span, .status-tag {
 .status-counties { min-width: 900px; }
 .status-counties tbody tr { cursor: default; }
 .status-counties td { vertical-align: top; padding-top: 6px; padding-bottom: 6px; }
-.status-counties th.sortable { cursor: pointer; user-select: none; }
-.status-counties th.sortable:hover { color: var(--accent); }
-.status-counties th.sortable::after { content: "\2195"; opacity: .35; margin-left: 5px; font-size: 10px; }
-.status-counties th.sorted { color: var(--accent); }
-.status-counties th.sorted-asc::after { content: "\2191"; opacity: 1; }
-.status-counties th.sorted-desc::after { content: "\2193"; opacity: 1; }
+
+/* Click-to-sort column headings (Pipeline Status, Browse, Parcel Values).
+ * The arrow is the visible state; aria-sort carries it for screen readers. */
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--accent); }
+th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+th.sortable::after { content: "\2195"; opacity: .35; margin-left: 5px; font-size: 10px; }
+th.sorted { color: var(--accent); }
+th.sorted-asc::after { content: "\2191"; opacity: 1; }
+th.sorted-desc::after { content: "\2193"; opacity: 1; }
 
 .status-counties .county-name { font-weight: 600; }
 .metro-badge {
@@ -413,6 +417,7 @@ body.sidebar-hidden .sidebar, body.no-sidebar .sidebar { display: none; }
 }
 .fms-actions button:hover { background: var(--accent-soft); }
 .fms-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fms-actions button[hidden] { display: none; }
 .fms-count { margin-left: auto; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
 .fms-list {
   max-height: 240px;
@@ -474,6 +479,12 @@ body.sidebar-hidden .sidebar, body.no-sidebar .sidebar { display: none; }
 /* Active-filter chips above the results. */
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; }
 .chips[hidden] { display: none; }
+/* A refused request (too many filter values, ...), above the results. */
+.request-error {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: 8px;
+  background: var(--fail-bg); color: var(--fail); font-size: 13px; line-height: 1.4;
+}
+.request-error[hidden] { display: none; }
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
   height: 26px; padding: 0 4px 0 9px;
@@ -766,3 +777,178 @@ abbr.gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
  * with a single `hidden` (the demo database has no instrument tables). */
 .recording-filters[hidden] { display: none; }
 .detail-table.instruments th { text-align: left; }
+
+/* ---------------------------------------------------------------------
+ * Mobile and touch
+ *
+ * Everything below only applies under 900px or on coarse (touch) pointers,
+ * so the desktop layout above is untouched. Three layers:
+ *  1. (max-width: 899px), (pointer: coarse): touch sizing. Tap targets are at
+ *     least 44px and form controls use a 16px font (iOS Safari zooms the page
+ *     when a focused field's font is smaller).
+ *  2. (max-width: 899px): tablet and phone. The sidebar is already a drawer
+ *     (see above); panels get tighter margins and wide tables keep their
+ *     first column pinned while they scroll sideways inside .table-wrap.
+ *  3. (max-width: 640px): phone. The topbar becomes two rows (Filters button,
+ *     title, status / the three tabs), the demo banner stops being sticky,
+ *     panels go edge to edge, the map takes most of the screen height and the
+ *     detail popup becomes a full-screen sheet.
+ * ------------------------------------------------------------------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.modal-close { z-index: 1; }
+
+@media (max-width: 899px), (pointer: coarse) {
+  :root { --control-h: 44px; }
+
+  .sidebar-toggle { height: 44px; }
+  .main-tab { min-height: 44px; }
+  .tab { min-height: 44px; padding: 0 18px; }
+  .fullscreen-btn { min-height: 44px; }
+  .demo-banner-toggle { height: 44px; }
+
+  /* Filter rail / drawer */
+  .sidebar-head { height: 56px; }
+  .sidebar-head h2 { font-size: 15px; }
+  .sidebar-close { width: 44px; height: 44px; }
+  .fgroup-head { min-height: 48px; font-size: 15px; }
+  .fl { font-size: 13px; }
+  .fhint { font-size: 12.5px; }
+  .filters select, .filters input, .fms-trigger { font-size: 16px; }
+  .filters input[type=checkbox] { width: 20px; height: 20px; }
+  .filters label.check { min-height: 44px; }
+  .filters label.check .fl { font-size: 15px; }
+  .fms-actions button { height: 44px; padding: 0 12px; font-size: 14px; }
+  .fms-list { max-height: min(360px, 45vh); }
+  .filters label.fms-opt { min-height: 44px; font-size: 15px; }
+  .filters .fms-opt input[type=checkbox] { width: 20px; height: 20px; }
+  .fms-desc { font-size: 13px; }
+  .filters-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .filters-actions button { height: 44px; font-size: 15px; }
+
+  /* Chips: the visible pill stays compact; ::after widens the tap area. */
+  .chip { height: 32px; padding: 0 4px 0 11px; font-size: 13px; }
+  .chip button { position: relative; width: 26px; height: 26px; font-size: 16px; }
+  .chip button::after, .chips .chips-clear::after { content: ""; position: absolute; inset: -9px; }
+  .chips .chips-clear { position: relative; height: 32px; font-size: 13px; }
+
+  /* Pager */
+  .pager { flex-wrap: wrap; row-gap: 8px; }
+  .pager button { min-height: 44px; min-width: 44px; padding: 0 14px; font-size: 14px; }
+  .grow-right select { height: 44px; padding: 0 8px; font-size: 16px; }
+
+  /* Tables: taller rows, and the sortable status headings are easier to hit. */
+  td { padding-top: 10px; padding-bottom: 10px; }
+  .status-counties th.sortable { padding-top: 14px; padding-bottom: 14px; }
+
+  /* Map chrome */
+  .leaflet-touch .leaflet-bar a { width: 44px; height: 44px; line-height: 44px; }
+  .leaflet-touch .leaflet-control-zoom-in, .leaflet-touch .leaflet-control-zoom-out { font-size: 24px; }
+  .map-meter-cancel { width: 36px; height: 36px; margin: -9px -6px -9px 0; font-size: 20px; }
+  .map-notice { padding-right: 44px; }
+  .map-notice-close { top: 0; right: 0; width: 44px; height: 44px; }
+
+  /* Detail popup */
+  .modal-close {
+    display: inline-flex; align-items: center; justify-content: center;
+    top: 6px; right: 6px; width: 44px; height: 44px; font-size: 28px;
+  }
+  .modal-content > h3 { padding-right: 44px; }
+}
+
+@media (max-width: 899px) {
+  /* Under 900px the Filters button keeps its label: it is the only way into
+   * the drawer, and its badge shows how many filters are active. */
+  .sidebar-toggle span:not(.badge) { display: inline; }
+  .sidebar-toggle { padding: 0 12px 0 10px; }
+  .topbar h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar { width: min(340px, calc(100vw - 40px)); }
+
+  .panel { margin: 12px; padding: 14px; }
+  .panel-header { flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .panel-header-right { flex-wrap: wrap; }
+
+  /* Wide tables scroll sideways inside their own box; the first column
+   * (county) stays pinned so a row is still identifiable mid-scroll. */
+  .table-wrap { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .table-wrap table th:first-child, .table-wrap table td:first-child {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--panel-bg);
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+  .table-wrap tbody tr:hover td:first-child { background: #f8fafc; }
+
+  /* Centred with left:50% the notice could only shrink-wrap into half the map
+   * width (a tall thin card over the map); span the map instead. */
+  .map-notice { left: 10px; right: 10px; transform: none; max-width: none; font-size: 12px; }
+
+  .modal { padding: 12px; }
+  .modal-content { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); padding: 16px; }
+  #detail-body { overflow-x: auto; }
+}
+
+@media (max-width: 640px) {
+  /* Two-row topbar: [Filters] [title] [live] / [three equal tabs]. The
+   * --topbar-h override keeps every sticky offset that uses it in step. */
+  :root { --topbar-h: 104px; }
+  .topbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 54px auto;
+    grid-template-areas: "toggle title right" "tabs tabs tabs";
+    column-gap: 10px;
+    height: var(--topbar-h);
+    padding: 0 10px;
+  }
+  .sidebar-toggle { grid-area: toggle; }
+  .topbar h1 { grid-area: title; font-size: 15px; }
+  .topbar-right { grid-area: right; margin-left: 0; }
+  .main-tabs { grid-area: tabs; align-self: start; }
+  .main-tab { flex: 1 1 0; min-width: 0; padding: 0 6px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* The banner scrolls away instead of permanently taking a slice of the
+   * screen (it starts collapsed on phones, see initDemoBanner). */
+  .demo-banner { position: static; padding: 6px 12px; font-size: 12.5px; }
+  .demo-banner-row { gap: 8px; }
+
+  .panel { margin: 0; border-left: 0; border-right: 0; border-radius: 0; padding: 12px; }
+  .panel + .panel { border-top: 0; }
+  .panel-header h2 { font-size: 13px; }
+  /* The phone screen is already the whole screen. */
+  .fullscreen-btn { display: none; }
+
+  .view-toggle .tab { flex: 1 1 0; }
+  .status-summary { gap: 8px; }
+  .status-summary .stat { flex: 1 1 calc(50% - 8px); min-width: 0; padding: 8px 12px; }
+
+  /* Map: most of the viewport below the sticky topbar; drag-to-resize is a
+   * mouse affordance, so it (and its hint) go away. */
+  #map {
+    height: calc(100vh - var(--topbar-h) - 150px);
+    height: calc(100svh - var(--topbar-h) - 150px);
+    min-height: 320px;
+    resize: none;
+  }
+  #map-hint { margin: 0 0 4px; }
+  .map-resize-hint { display: none; }
+  .map-notice { bottom: 24px; } /* clear of the attribution line */
+
+  .pager { justify-content: space-between; }
+  .pager #page-info, .pager #v-page-info { flex: 1 1 auto; text-align: center; font-size: 12.5px; }
+  .pager .grow-right { flex: 1 1 100%; justify-content: flex-end; margin-left: 0; }
+
+  /* Detail popup: a full-screen sheet; #detail-body is still the one scroller. */
+  .modal { padding: 0; align-items: stretch; }
+  .modal-content {
+    max-width: none;
+    height: 100vh; height: 100dvh;
+    max-height: 100vh; max-height: 100dvh;
+    border-radius: 0;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  }
+  .detail-table th { width: 42%; }
+}
+
+@media (max-width: 899px) and (pointer: coarse) {
+  /* County-name tooltip follows the mouse; meaningless on touch. */
+  .county-hover { display: none; }
+}

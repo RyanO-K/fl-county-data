@@ -70,7 +70,7 @@
           </button>
           <div class="fgroup-body" id="fg-browse-presets">
             <label><span class="fl">Preset</span>
-              <select id="f-preset" data-chip="Preset" title="A ready-made selection applied county by county: the same zoning code can mean different districts in different counties">
+              <select id="f-preset" data-chip="Preset" title="A ready-made selection: agricultural zoning districts (judged county by county) or a land-use group (statewide DOR use-code categories)">
                 <option value="">None</option>
                 <option value="ag_zoning">Agricultural zoning</option>
               </select>
@@ -112,6 +112,8 @@
               <span class="fl" id="fl-landuse">Land use code</span>
               <select id="f-landuse" class="fms-native" multiple aria-labelledby="fl-landuse" data-chip="Land use code" tabindex="-1"></select>
             </div>
+            <label class="check" data-not-filter title="Hide parcels with the chosen land-use codes instead of showing only them. Rows with no land-use code stay."><input type="checkbox" id="f-landuse-exclude"> <span class="fl">Exclude chosen land-use codes</span></label>
+            <label class="check" title="Hide parcels whose Florida DOR use code is residential (01-09: single family, mobile home, multi-family, condo, co-op, retirement). Vacant residential (00) and parcels with no usable code stay."><input type="checkbox" id="f-hide-res" data-chip="Hide residential"> <span class="fl">Hide residential</span></label>
             <div class="frange" role="group" aria-labelledby="fl-acre">
               <span class="fl" id="fl-acre">Acreage</span>
               <div class="frange-inputs">
@@ -247,10 +249,19 @@
             <label><span class="fl">Sort by</span>
               <select id="v-sort">
                 <option value="just_value">Just value</option>
+                <option value="assessed_value">Assessed value</option>
+                <option value="taxable_value">Taxable value</option>
                 <option value="land_value">Land value</option>
+                <option value="land_sqft">Land sq ft</option>
                 <option value="sale_price">Last sale price</option>
                 <option value="sale_year">Last sale date</option>
+                <option value="sale_qual">Sale qualified</option>
+                <option value="year_built">Year built</option>
+                <option value="county">County</option>
                 <option value="parcel_id">Parcel ID</option>
+                <option value="site_address">Site address</option>
+                <option value="site_city">City</option>
+                <option value="dor_use_code">Use code</option>
               </select>
             </label>
             <label><span class="fl">Direction</span>
@@ -315,6 +326,7 @@
       </div>
     </div>
 
+    <p id="browse-request-error" class="request-error" role="alert" hidden></p>
     <div id="browse-chips" class="chips" aria-label="Active filters" hidden></div>
 
     <div class="view-toggle">
@@ -327,19 +339,19 @@
         <table id="features-table">
           <thead>
             <tr>
-              <th>County</th>
-              <th>Dataset</th>
-              <th>Feature key</th>
-              <th>City</th>
-              <th>Acreage</th>
-              <th>Zoning</th>
-              <th>Land use</th>
-              <th>Land value</th>
-              <th>Building value</th>
-              <th>Total value</th>
-              <th>Just value</th>
-              <th>Last sale</th>
-              <th>Last synced</th>
+              <th class="sortable" data-sort-key="county">County</th>
+              <th class="sortable" data-sort-key="dataset_type">Dataset</th>
+              <th class="sortable" data-sort-key="feature_key">Feature key</th>
+              <th class="sortable" data-sort-key="city">City</th>
+              <th class="sortable" data-sort-key="acreage">Acreage</th>
+              <th class="sortable" data-sort-key="zoning_code">Zoning</th>
+              <th class="sortable" data-sort-key="land_use_code">Land use</th>
+              <th class="sortable" data-sort-key="land_value">Land value</th>
+              <th class="sortable" data-sort-key="building_value">Building value</th>
+              <th class="sortable" data-sort-key="total_value">Total value</th>
+              <th class="sortable" data-sort-key="just_value">Just value</th>
+              <th class="sortable" data-sort-key="sale_price">Last sale</th>
+              <th class="sortable" data-sort-key="last_synced_at">Last synced</th>
             </tr>
           </thead>
           <tbody id="features-tbody"></tbody>
@@ -377,25 +389,26 @@
       </div>
     </div>
 
+    <p id="values-request-error" class="request-error" role="alert" hidden></p>
     <div id="values-chips" class="chips" aria-label="Active filters" hidden></div>
 
     <div class="table-wrap">
       <table id="values-table">
         <thead>
           <tr>
-            <th>County</th>
-            <th>Parcel ID</th>
-            <th>Site address</th>
-            <th>City</th>
-            <th>Use code</th>
-            <th>Just value</th>
-            <th>Assessed value</th>
-            <th>Taxable value</th>
-            <th>Land value</th>
-            <th>Land sq ft</th>
-            <th>Last sale</th>
-            <th>Qualified</th>
-            <th>Year built</th>
+            <th class="sortable" data-sort-key="county">County</th>
+            <th class="sortable" data-sort-key="parcel_id">Parcel ID</th>
+            <th class="sortable" data-sort-key="site_address">Site address</th>
+            <th class="sortable" data-sort-key="site_city">City</th>
+            <th class="sortable" data-sort-key="dor_use_code">Use code</th>
+            <th class="sortable" data-sort-key="just_value">Just value</th>
+            <th class="sortable" data-sort-key="assessed_value">Assessed value</th>
+            <th class="sortable" data-sort-key="taxable_value">Taxable value</th>
+            <th class="sortable" data-sort-key="land_value">Land value</th>
+            <th class="sortable" data-sort-key="land_sqft">Land sq ft</th>
+            <th class="sortable" data-sort-key="sale_price">Last sale</th>
+            <th class="sortable" data-sort-key="sale_qual">Qualified</th>
+            <th class="sortable" data-sort-key="year_built">Year built</th>
           </tr>
         </thead>
         <tbody id="values-tbody"></tbody>

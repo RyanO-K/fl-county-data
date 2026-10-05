@@ -1,0 +1,73 @@
+{
+ "_notes": "Land-use preset buckets for the app's Preset filter. Each bucket is a list of 2-digit Florida DOR use-code categories (Fla. Admin. Code R. 12D-8.008; names in fetch_code_descriptions.py DOR_CATEGORIES). A parcel's category comes from features.dor_use_code (the statewide DOR roll, '001' = 01) and, where that is blank, from the county's own land_use_code via dor_codes.normalize_code. Buckets may overlap (vacant commercial is in both 'commercial' and 'vacant_land'). Category 80 is 'undefined/reserved' in the current rule but most counties still use it for vacant government land (avg ~50 acres per parcel), so it sits with government. Category counts were checked against the 51-county demo database on 2026-10-05.",
+ "buckets": {
+  "residential": {
+   "label": "Residential (improved)",
+   "categories": ["01", "02", "03", "04", "05", "06", "07", "08", "09"]
+  },
+  "vacant_residential": {
+   "label": "Vacant residential lots",
+   "categories": ["00"]
+  },
+  "vacant_land": {
+   "label": "Vacant land (all types)",
+   "categories": ["00", "10", "40", "70", "99"]
+  },
+  "raw_acreage": {
+   "label": "Acreage, not zoned agricultural",
+   "categories": ["99"]
+  },
+  "undeveloped": {
+   "label": "Undeveloped: vacant non-residential, acreage, agriculture",
+   "categories": ["10", "40", "70", "99", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59",
+                  "60", "61", "62", "63", "64", "65", "66", "67", "68", "69"]
+  },
+  "agricultural": {
+   "label": "Agricultural (all)",
+   "categories": ["50", "51", "52", "53", "54", "55", "56", "57", "58", "59",
+                  "60", "61", "62", "63", "64", "65", "66", "67", "68", "69"]
+  },
+  "ag_cropland": {
+   "label": "Agricultural: cropland",
+   "categories": ["51", "52", "53"]
+  },
+  "ag_timber": {
+   "label": "Agricultural: timberland",
+   "categories": ["54", "55", "56", "57", "58", "59"]
+  },
+  "ag_grazing": {
+   "label": "Agricultural: grazing / pasture",
+   "categories": ["60", "61", "62", "63", "64", "65"]
+  },
+  "ag_specialty": {
+   "label": "Agricultural: groves, nurseries, poultry, dairy, improved ag",
+   "categories": ["50", "66", "67", "68", "69"]
+  },
+  "commercial": {
+   "label": "Commercial (incl. vacant commercial)",
+   "categories": ["10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+                  "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37",
+                  "38", "39"]
+  },
+  "industrial": {
+   "label": "Industrial and mining (incl. vacant industrial)",
+   "categories": ["40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "92"]
+  },
+  "institutional": {
+   "label": "Institutional: churches, private schools, hospitals, clubs",
+   "categories": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"]
+  },
+  "government": {
+   "label": "Government-owned and public schools",
+   "categories": ["80", "81", "83", "84", "85", "86", "87", "88", "89"]
+  },
+  "conservation": {
+   "label": "Parks, conservation, wetlands",
+   "categories": ["82", "96", "97"]
+  },
+  "other": {
+   "label": "Utilities, rights-of-way, water, subsurface, leaseholds",
+   "categories": ["90", "91", "93", "94", "95", "98"]
+  }
+ }
+}

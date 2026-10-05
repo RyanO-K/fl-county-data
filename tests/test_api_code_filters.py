@@ -187,15 +187,34 @@ def test_arg_list_limit_counts_distinct_values():
     assert A.arg_list(md, "z") == ["A", "B", "C"]
 
 
-def test_too_many_codes_capped_not_an_error(client):
+def test_too_many_codes_is_a_json_400(client):
+    # Past the cap the request is refused with a JSON error naming the
+    # parameter and the count, rather than silently dropping codes.
     import app as A
     cap = A.MAX_FILTER_CODES
-    junk = "&".join(f"zoning_code=X{i}" for i in range(cap + 50))
-    # Codes past the cap are dropped (never reaching SQLite), so a real code
-    # listed first still matches and one listed after the cap does not.
+    for name in ("zoning_code", "land_use_code", "exclude_land_use_code"):
+        junk = "&".join(f"{name}=X{i}" for i in range(cap + 50))
+        for path in ("/api/features", "/api/features/geometry", "/api/filter_counts"):
+            r = client.get(f"{path}?{junk}")
+            assert r.status_code == 400, (path, name)
+            assert r.is_json
+            err = r.get_json()["error"]
+            assert name in err and f"{cap + 50:,}" in err
+
+
+def test_codes_at_the_cap_are_accepted(client):
+    import app as A
+    junk = "&".join(f"zoning_code=X{i}" for i in range(A.MAX_FILTER_CODES - 1))
     assert _ids(client.get(f"/api/features?zoning_code=CO&{junk}")) == ["P-2"]
-    assert _ids(client.get(f"/api/features?{junk}&zoning_code=CO")) == []
-    assert _get(client, f"/api/filter_counts?zoning_code=CO&{junk}")["counties"] == {"hernando": 0, "pasco": 1}
+    # Duplicates count once.
+    assert _ids(client.get(f"/api/features?zoning_code=CO&zoning_code=CO&{junk}")) == ["P-2"]
+
+
+def test_api_errors_are_json_other_pages_are_not(client):
+    r = client.get("/api/features?zoning_code=" + "&zoning_code=".join(str(i) for i in range(600)))
+    assert r.status_code == 400 and r.is_json
+    # Non-API 404s keep Flask's HTML page; the handler only covers 400/413/414.
+    assert not client.get("/nope").is_json
 
 
 # --- _facets_key -------------------------------------------------------------

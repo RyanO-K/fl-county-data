@@ -9,6 +9,8 @@ const state = {
   dataset_type: "",
   zoning_code: [], // multi-select: a row matches any chosen code
   land_use_code: [],
+  exclude_land_use_code: [], // the land-use select in "Exclude" mode
+  hide_residential: "", // "1": drop parcels whose DOR category is residential (01-09)
   min_acreage: "",
   max_acreage: "",
   // Recorded-instrument filters. Shown when the database carries the clerk
@@ -20,6 +22,10 @@ const state = {
   has_lien: "",
   ag_enclave: "", // "1": only ag-zoned parcels surrounded by development
   q: "",
+  // Table sort (server-side, see FEATURES_SORT_COLUMNS in app.py). "" keeps
+  // the API's default id order; a heading click sets it.
+  sort: "",
+  dir: "asc",
   page: 1,
   per_page: 50,
   view: "map",
@@ -58,10 +64,86 @@ let valuesLoaded = false;
 /* ---------------------------------------------------------------------
  * Helpers
  * ------------------------------------------------------------------- */
-async function fetchJSON(url) {
+/* ---------------------------------------------------------------------
+ * API requests
+ *
+ * Filter requests are GETs whose code filters repeat per value, so selecting
+ * hundreds of codes makes a URL longer than a server accepts (gunicorn's
+ * default limit_request_line is 4094 bytes for the whole request line and it
+ * answers with an HTML 400 before the app sees the request). apiURL refuses
+ * such a request up front, and fetchJSON turns a refused one into a
+ * RequestError whose message is meant for the page: it names the biggest
+ * filter and never contains the URL.
+ * ------------------------------------------------------------------- */
+const MAX_URL_LENGTH = 4000;
+const PARAM_LABELS = {
+  zoning_code: "zoning codes",
+  land_use_code: "land-use codes",
+  exclude_land_use_code: "excluded land-use codes",
+};
+
+class RequestError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "RequestError";
+    this.status = status; // 0 when the request was never sent
+  }
+}
+
+function tooManyValuesMessage(params) {
+  let biggest = null;
+  for (const [k, v] of Object.entries(params || {})) {
+    if (Array.isArray(v) && v.length > 1 && (!biggest || v.length > biggest[1])) biggest = [k, v.length];
+  }
+  const what = biggest
+    ? `${biggest[1].toLocaleString()} ${PARAM_LABELS[biggest[0]] || biggest[0]}`
+    : "the request is too long";
+  return `Too many filter values selected (${what}). Select fewer codes, or use Exclude / Hide residential instead.`;
+}
+
+/* path + query string, or a RequestError when it would be too long to send. */
+function apiURL(path, params) {
+  const query = params ? qs(params) : "";
+  const url = query ? `${path}?${query}` : path;
+  if (url.length > MAX_URL_LENGTH) throw new RequestError(tooManyValuesMessage(params), 0);
+  return url;
+}
+
+/* GET an API path with filter params (see apiURL). */
+function fetchAPI(path, params) {
+  return fetchJSON(apiURL(path, params), params);
+}
+
+async function fetchJSON(url, params) {
   const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`${url} -> HTTP ${resp.status}`);
+  if (!resp.ok) {
+    // The app answers refused /api requests with {"error": ...}; a proxy or
+    // gunicorn answers an oversized request with an HTML 400/414/431.
+    let body = "";
+    try { body = await resp.text(); } catch (e) { /* no body */ }
+    let detail = "";
+    try { detail = (JSON.parse(body) || {}).error || ""; } catch (e) { /* not JSON */ }
+    if (detail) throw new RequestError(String(detail), resp.status);
+    if ([413, 414, 431].includes(resp.status) || /too (large|long)/i.test(body)) {
+      throw new RequestError(tooManyValuesMessage(params), resp.status);
+    }
+    throw new RequestError(`The server answered HTTP ${resp.status}.`, resp.status);
+  }
   return resp.json();
+}
+
+/* A visible notice above a panel's results for a refused request, kept per
+ * source (table, counts, map) so one succeeding does not hide another's. */
+const requestErrors = new Map(); // element id -> Map(source -> message)
+function setRequestError(elId, source, message) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!requestErrors.has(elId)) requestErrors.set(elId, new Map());
+  const msgs = requestErrors.get(elId);
+  if (message) msgs.set(source, message); else msgs.delete(source);
+  const shown = [...new Set(msgs.values())];
+  el.textContent = shown.join(" ");
+  el.hidden = shown.length === 0;
 }
 
 function qs(params) {
@@ -87,6 +169,8 @@ function currentFilterParams(extra) {
     dataset_type: state.dataset_type,
     zoning_code: state.zoning_code,
     land_use_code: state.land_use_code,
+    exclude_land_use_code: state.exclude_land_use_code,
+    hide_residential: state.hide_residential,
     min_acreage: state.min_acreage,
     max_acreage: state.max_acreage,
     has_mortgage: state.has_mortgage,
@@ -222,6 +306,42 @@ function setTextIfChanged(el, text) {
   return false;
 }
 
+/* Click-to-sort headings: <th class="sortable" data-sort-key="...">. The
+ * sorted heading gets an arrow (sorted-asc/-desc) and aria-sort; the others
+ * drop aria-sort, as the ARIA pattern expects only one sorted column. */
+function markSortHeaders(tableId, key, dir) {
+  document.querySelectorAll(`#${tableId} th.sortable`).forEach((th) => {
+    const on = th.dataset.sortKey === key;
+    th.classList.toggle("sorted", on);
+    th.classList.toggle("sorted-asc", on && dir === "asc");
+    th.classList.toggle("sorted-desc", on && dir === "desc");
+    if (on) th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
+    else th.removeAttribute("aria-sort");
+  });
+}
+
+/* Wire the headings: click, or Enter/Space when focused, calls onSort(key). */
+function initSortHeaders(tableId, onSort) {
+  document.querySelectorAll(`#${tableId} th.sortable`).forEach((th) => {
+    th.tabIndex = 0;
+    if (!th.title) th.title = "Click to sort; click again to reverse";
+    th.addEventListener("click", () => onSort(th.dataset.sortKey));
+    th.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        onSort(th.dataset.sortKey);
+      }
+    });
+  });
+}
+
+/* Next {sort, dir} after clicking `key`: the same heading flips direction,
+ * a new heading starts ascending. */
+function nextSort(cur, key) {
+  if (cur.sort === key) return { sort: key, dir: cur.dir === "asc" ? "desc" : "asc" };
+  return { sort: key, dir: "asc" };
+}
+
 /* ---------------------------------------------------------------------
  * Dropdowns: counties / datasets / facets
  * ------------------------------------------------------------------- */
@@ -328,6 +448,22 @@ function setDisabled(el, disabled) {
  * categorical filters - dataset, zoning code, land-use code, recording
  * filters - and greys out the zeros. Answered from cached aggregates, so it
  * runs on every change. Ranges and free text are not considered. */
+/* The land-use select is one list with two modes: the chosen codes are sent
+ * as land_use_code (show only these) or, with "Exclude" ticked, as
+ * exclude_land_use_code (hide these; rows with no code stay). */
+function landUseParams() {
+  const codes = selectedValues(document.getElementById("f-landuse"));
+  const exclude = document.getElementById("f-landuse-exclude").checked;
+  return { land_use_code: exclude ? [] : codes, exclude_land_use_code: exclude ? codes : [] };
+}
+
+/* Chips and the multi-select's label say which mode the codes are in. */
+function syncLandUseMode() {
+  const exclude = document.getElementById("f-landuse-exclude").checked;
+  document.getElementById("f-landuse").dataset.chip = exclude ? "Excluding land use" : "Land use code";
+  document.getElementById("fl-landuse").textContent = exclude ? "Land use code (excluded)" : "Land use code";
+}
+
 let filterCountsSeq = 0;
 async function refreshFilterCounts() {
   const seq = ++filterCountsSeq;
@@ -336,7 +472,8 @@ async function refreshFilterCounts() {
     county: document.getElementById("f-county").value,
     dataset_type: document.getElementById("f-dataset").value,
     zoning_code: selectedValues(document.getElementById("f-zoning")),
-    land_use_code: selectedValues(document.getElementById("f-landuse")),
+    ...landUseParams(),
+    hide_residential: document.getElementById("f-hide-res").checked ? "1" : "",
     has_mortgage: document.getElementById("f-has-mtg").value,
     has_lien: document.getElementById("f-lien").checked ? "1" : "",
     ag_enclave: document.getElementById("f-enclave").checked ? "1" : "",
@@ -346,12 +483,18 @@ async function refreshFilterCounts() {
   };
   let data;
   try {
-    data = await fetchJSON(`/api/filter_counts?${qs(params)}`);
+    data = await fetchAPI("/api/filter_counts", params);
   } catch (err) {
-    console.warn("filter counts unavailable:", err); // older server: keep the client-side greying
+    if (seq !== filterCountsSeq) return;
+    // Too many codes chosen: say so now, before Apply. Anything else (an
+    // older server) keeps the client-side greying.
+    setRequestError("browse-request-error", "counts",
+      err instanceof RequestError && [0, 400, 413, 414, 431].includes(err.status) ? err.message : "");
+    console.warn("filter counts unavailable:", err);
     return;
   }
   if (seq !== filterCountsSeq) return;
+  setRequestError("browse-request-error", "counts", "");
   const countySel = document.getElementById("f-county");
   const datasetSel = document.getElementById("f-dataset");
   let changed = false;
@@ -423,7 +566,22 @@ async function loadPresets() {
     console.warn("presets unavailable:", err);
     presetsInfo = null;
   }
+  fillPresetOptions();
   updatePresetHint();
+}
+
+/* The land-use presets (kind "land_use") are listed by the server from
+ * land_use_presets.json; the zoning preset's option is in the page. */
+function fillPresetOptions() {
+  const sel = document.getElementById("f-preset");
+  sel.querySelector("optgroup[data-land-use]")?.remove();
+  const entries = Object.entries(presetsInfo || {}).filter(([, p]) => p.kind === "land_use");
+  if (!entries.length) return;
+  const group = document.createElement("optgroup");
+  group.label = "Land use (DOR category)";
+  group.dataset.landUse = "";
+  for (const [name, p] of entries) group.append(new Option(p.label, name));
+  sel.append(group);
 }
 
 function updatePresetHint() {
@@ -431,6 +589,13 @@ function updatePresetHint() {
   const preset = document.getElementById("f-preset").value;
   const info = preset && presetsInfo && presetsInfo[preset];
   if (!info) { hint.hidden = true; hint.textContent = ""; return; }
+  if (info.kind === "land_use") {
+    const cats = info.categories || [];
+    hint.textContent = `Parcels in DOR use-code ${cats.length === 1 ? "category" : "categories"} ` +
+      `${cats.join(", ")}, from the state tax roll (or the county's own code where the roll has none).`;
+    hint.hidden = false;
+    return;
+  }
   const county = document.getElementById("f-county").value;
   const counts = info.counties || {};
   const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? "" : "s"}`;
@@ -510,17 +675,17 @@ async function loadFacets() {
   // With a preset on, the code lists narrow to what the preset can match
   // (e.g. only the agricultural districts), since any other chosen zoning
   // code would be ANDed away anyway.
-  const params = qs({
+  const params = {
     preset: document.getElementById("f-preset").value,
     county: document.getElementById("f-county").value,
     dataset_type: document.getElementById("f-dataset").value,
-  });
+  };
   const seq = ++facetsSeq;
   setFacetsPending(zoningSel, true);
   setFacetsPending(landuseSel, true);
   let data;
   try {
-    data = await fetchJSON(`/api/facets?${params}`);
+    data = await fetchAPI("/api/facets", params);
   } catch (err) {
     console.warn("facets unavailable:", err);
     data = null;
@@ -562,7 +727,7 @@ function initMultiSelects() {
       <div class="fms-panel" id="${sel.id}-panel" hidden>
         <input type="search" class="fms-search" placeholder="Search codes" aria-label="Search codes" autocomplete="off">
         <div class="fms-actions">
-          <button type="button" data-act="all">Select shown</button>
+          <button type="button" data-act="all" hidden>Select shown</button>
           <button type="button" data-act="none">Clear</button>
           <span class="fms-count"></span>
         </div>
@@ -574,6 +739,7 @@ function initMultiSelects() {
       box, trigger: ui.querySelector(".fms-trigger"), summary: ui.querySelector(".fms-summary"),
       panel: ui.querySelector(".fms-panel"), search: ui.querySelector(".fms-search"),
       list: ui.querySelector(".fms-list"), count: ui.querySelector(".fms-count"), empty: ui.querySelector(".fms-empty"),
+      selectShown: ui.querySelector('[data-act="all"]'),
     };
     multiSelects.set(sel.id, w);
 
@@ -584,7 +750,9 @@ function initMultiSelects() {
       const opt = [...sel.options].find((o) => o.value === ev.target.value);
       if (opt) { opt.selected = ev.target.checked; changed(); }
     });
-    ui.querySelector('[data-act="all"]').addEventListener("click", () => {
+    w.selectShown.addEventListener("click", () => {
+      // Only offered while a search narrows the list (see filterMultiSelectList).
+      if (!w.search.value.trim()) return;
       for (const row of w.list.children) {
         if (!row.hidden) row.querySelector("input").checked = true;
       }
@@ -708,6 +876,9 @@ function filterMultiSelectList(sel) {
   w.count.textContent = n ? `${n} selected` : "";
   w.empty.hidden = shown > 0;
   w.empty.textContent = sel.options.length ? "No codes match." : "No codes for this selection.";
+  // "Select shown" only with a search typed: on the full list it ticks every
+  // code (hundreds), which is a request too large to send and rarely meant.
+  w.selectShown.hidden = !needle || shown === 0;
 }
 
 function truncate(s, n) {
@@ -810,12 +981,13 @@ function buildRowCells(row) {
 
 function renderFeaturesTable(data, isPoll) {
   const tbody = document.getElementById("features-tbody");
-  const incomingIds = new Set(data.rows.map((r) => r.id));
-  const existingIds = new Set(featureRowIndex.keys());
-  const sameIdSet = incomingIds.size === existingIds.size &&
-    [...incomingIds].every((id) => existingIds.has(id));
+  // Rows render in the order the server sorted them, so a poll can only patch
+  // in place when it brought back the same rows in the same order.
+  const existingIds = [...featureRowIndex.keys()];
+  const sameRows = data.rows.length === existingIds.length &&
+    data.rows.every((r, i) => r.id === existingIds[i]);
 
-  if (!isPoll || !sameIdSet || tbody.children.length === 0) {
+  if (!isPoll || !sameRows || tbody.children.length === 0) {
     // Full (re)render - either a real navigation/filter change, or the
     // row set itself changed (rows added/removed by a concurrent sync).
     tbody.innerHTML = "";
@@ -829,7 +1001,7 @@ function renderFeaturesTable(data, isPoll) {
       featureRowIndex.set(row.id, { el: tr, values: rowValues(row) });
     }
   } else {
-    // Same rows, same order (id-sorted) - patch only changed cells so the
+    // Same rows, same order - patch only changed cells so the
     // update doesn't visually jar the user while they're browsing.
     for (const row of data.rows) {
       const entry = featureRowIndex.get(row.id);
@@ -861,13 +1033,25 @@ function renderFeaturesTable(data, isPoll) {
 }
 
 async function loadFeatures(isPoll) {
-  const params = currentFilterParams({ page: state.page, per_page: state.per_page });
+  // Sort rides along with the table request only: the map and the filter
+  // counts key on currentFilterParams() and do not depend on row order.
+  const params = currentFilterParams({
+    page: state.page, per_page: state.per_page, sort: state.sort, dir: state.sort ? state.dir : "",
+  });
+  markSortHeaders("features-table", state.sort, state.dir);
   try {
-    const data = await fetchJSON(`/api/features?${qs(params)}`);
+    const data = await fetchAPI("/api/features", params);
     renderFeaturesTable(data, isPoll);
+    setRequestError("browse-request-error", "table", "");
     setConn(true);
   } catch (e) {
-    setConn(false);
+    if (e instanceof RequestError) {
+      // The server (or the URL limit) refused this request: not a lost connection.
+      setRequestError("browse-request-error", "table", e.message);
+      if (!isPoll) document.getElementById("results-hint").textContent = "Request refused - see the message above.";
+    } else {
+      setConn(false);
+    }
     if (!isPoll) console.error(e);
   }
 }
@@ -1192,11 +1376,7 @@ function renderStatusCounties(counties) {
 }
 
 function markStatusSortHeader() {
-  document.querySelectorAll("#status-counties-table th.sortable").forEach((th) => {
-    th.classList.toggle("sorted", th.dataset.sortKey === statusSort.key);
-    th.classList.toggle("sorted-asc", th.dataset.sortKey === statusSort.key && statusSort.dir === "asc");
-    th.classList.toggle("sorted-desc", th.dataset.sortKey === statusSort.key && statusSort.dir === "desc");
-  });
+  markSortHeaders("status-counties-table", statusSort.key, statusSort.dir);
 }
 
 let lastStatusCounties = [];
@@ -1215,19 +1395,17 @@ async function loadStatus() {
 }
 
 function initStatusEvents() {
-  document.querySelectorAll("#status-counties-table th.sortable").forEach((th) => {
-    th.addEventListener("click", () => {
-      const key = th.dataset.sortKey;
-      if (statusSort.key === key) {
-        statusSort.dir = statusSort.dir === "asc" ? "desc" : "asc";
-      } else {
-        statusSort.key = key;
-        // Names read best A-Z; times read best newest-first.
-        statusSort.dir = key === "county" ? "asc" : "desc";
-      }
-      renderStatusCounties(lastStatusCounties);
-      markStatusSortHeader();
-    });
+  // Sorted client-side: the status table is one unpaginated row per county.
+  initSortHeaders("status-counties-table", (key) => {
+    if (statusSort.key === key) {
+      statusSort.dir = statusSort.dir === "asc" ? "desc" : "asc";
+    } else {
+      statusSort.key = key;
+      // Names read best A-Z; times read best newest-first.
+      statusSort.dir = key === "county" ? "asc" : "desc";
+    }
+    renderStatusCounties(lastStatusCounties);
+    markStatusSortHeader();
   });
 }
 
@@ -1535,14 +1713,23 @@ async function loadMap() {
   const hint = document.getElementById("map-hint");
   const run = ++mapRun;
   const params = currentFilterParams();
+  setRequestError("browse-request-error", "map", ""); // set again below if this load is refused
   if (!state.county) {
     // Without a county the map renders only when the filtered pool is small;
     // a statewide draw of every parcel would never finish in the browser.
     let total = lastFeaturesKey === JSON.stringify(params) ? lastFeaturesTotal : null;
     if (total == null) {
       try {
-        total = (await fetchJSON(`/api/features?${qs(Object.assign({}, params, { per_page: 1 }))}`)).total;
+        total = (await fetchAPI("/api/features", Object.assign({}, params, { per_page: 1 }))).total;
       } catch (e) {
+        if (run !== mapRun) return;
+        if (e instanceof RequestError) {
+          clearMap();
+          setMapProgress(false);
+          hint.textContent = "Map not loaded: " + e.message;
+          setRequestError("browse-request-error", "map", e.message);
+          return;
+        }
         total = null;
       }
       if (run !== mapRun) return;
@@ -1618,7 +1805,7 @@ async function loadMap() {
   let after = 0, shown = 0, total = null, throttled = false, chunks = 0;
   try {
     for (;;) {
-      const data = await fetchJSON(`/api/features/geometry?${qs(Object.assign({}, params, { after_id: after, limit: MAP_CHUNK }))}`);
+      const data = await fetchAPI("/api/features/geometry", Object.assign({}, params, { after_id: after, limit: MAP_CHUNK }));
       if (run !== mapRun) return;
       if (data.total != null) total = data.total;
       const rows = data.rows;
@@ -1655,6 +1842,7 @@ async function loadMap() {
       if (!data.has_more) break;
     }
     if (run !== mapRun) return;
+    setRequestError("browse-request-error", "map", "");
     fitToData();
     const secs = (performance.now() - t0) / 1000;
     hint.textContent = `Rendered on map (${shown.toLocaleString()} features` +
@@ -1670,6 +1858,7 @@ async function loadMap() {
     mapLoadedKey = null;
     hint.textContent = "Failed to load map data: " + e.message;
     showMapNotice("Map load failed: " + esc(e.message), 10000);
+    if (e instanceof RequestError) setRequestError("browse-request-error", "map", e.message);
     setMapProgress(false);
   }
 }
@@ -1705,8 +1894,7 @@ async function loadValuesCounties() {
 async function loadValuesUseCodes() {
   const sel = document.getElementById("v-usecode");
   const county = document.getElementById("v-county").value;
-  const params = qs({ county });
-  const data = await fetchJSON(`/api/values/use_codes?${params}`);
+  const data = await fetchAPI("/api/values/use_codes", { county });
   const prev = sel.value;
   sel.innerHTML = '<option value="">All</option>' +
     data
@@ -1771,12 +1959,11 @@ function renderValuesTable(data, isPoll) {
     table.hidden = false;
     emptyEl.hidden = true;
 
-    const incomingKeys = new Set(data.rows.map(valueRowKey));
-    const existingKeys = new Set(valuesRowIndex.keys());
-    const sameKeySet = incomingKeys.size === existingKeys.size &&
-      [...incomingKeys].every((k) => existingKeys.has(k));
+    const existingKeys = [...valuesRowIndex.keys()];
+    const sameRows = data.rows.length === existingKeys.length &&
+      data.rows.every((r, i) => valueRowKey(r) === existingKeys[i]);
 
-    if (!isPoll || !sameKeySet || tbody.children.length === 0) {
+    if (!isPoll || !sameRows || tbody.children.length === 0) {
       tbody.innerHTML = "";
       valuesRowIndex.clear();
       for (const row of data.rows) {
@@ -1818,12 +2005,15 @@ function renderValuesTable(data, isPoll) {
 
 async function loadValuesTable(isPoll) {
   const params = valuesFilterParams({ page: vstate.page, per_page: vstate.per_page });
+  markSortHeaders("values-table", vstate.sort, vstate.dir);
   try {
-    const data = await fetchJSON(`/api/values?${qs(params)}`);
+    const data = await fetchAPI("/api/values", params);
     renderValuesTable(data, isPoll);
+    setRequestError("values-request-error", "table", "");
     setConn(true);
   } catch (e) {
-    setConn(false);
+    if (e instanceof RequestError) setRequestError("values-request-error", "table", e.message);
+    else setConn(false);
     if (!isPoll) console.error(e);
   }
 }
@@ -1907,6 +2097,16 @@ function initValuesEvents() {
     vstate.page = 1;
     await loadValuesTable(false);
   });
+
+  // Headings and the sidebar's Sort section are two views of one state:
+  // a heading click updates the selects, and Apply reads them back.
+  initSortHeaders("values-table", async (key) => {
+    Object.assign(vstate, nextSort(vstate, key));
+    document.getElementById("v-sort").value = vstate.sort;
+    document.getElementById("v-dir").value = vstate.dir;
+    vstate.page = 1;
+    await loadValuesTable(false);
+  });
 }
 
 async function ensureValuesLoaded() {
@@ -1925,7 +2125,8 @@ function readFiltersFromForm() {
   state.county = document.getElementById("f-county").value;
   state.dataset_type = document.getElementById("f-dataset").value;
   state.zoning_code = selectedValues(document.getElementById("f-zoning"));
-  state.land_use_code = selectedValues(document.getElementById("f-landuse"));
+  Object.assign(state, landUseParams());
+  state.hide_residential = document.getElementById("f-hide-res").checked ? "1" : "";
   state.min_acreage = document.getElementById("f-min-acre").value;
   state.max_acreage = document.getElementById("f-max-acre").value;
   state.has_mortgage = document.getElementById("f-has-mtg").value;
@@ -1964,6 +2165,13 @@ function initEvents() {
     document.getElementById(id).addEventListener("change", refreshFilterCounts);
   }
   document.getElementById("f-enclave").addEventListener("change", refreshFilterCounts);
+  document.getElementById("f-hide-res").addEventListener("change", refreshFilterCounts);
+  document.getElementById("f-landuse-exclude").addEventListener("change", () => {
+    syncLandUseMode();
+    refreshFilterCounts();
+  });
+  // Form reset unticks Exclude without firing change.
+  document.getElementById("filters").addEventListener("reset", () => setTimeout(syncLandUseMode, 0));
   document.getElementById("f-county").addEventListener("change", updateEnclaveHint);
   for (const id of ["f-has-mtg", "f-lien", "f-mtg-since", "f-mtg-min", "f-mtg-max"]) {
     document.getElementById(id).addEventListener("change", applyAvailability);
@@ -1995,6 +2203,12 @@ function initEvents() {
   });
   document.getElementById("per-page").addEventListener("change", async (ev) => {
     state.per_page = parseInt(ev.target.value, 10);
+    state.page = 1;
+    await loadFeatures(false);
+  });
+
+  initSortHeaders("features-table", async (key) => {
+    Object.assign(state, nextSort(state, key));
     state.page = 1;
     await loadFeatures(false);
   });
@@ -2104,7 +2318,10 @@ function initDemoBanner() {
     setHeight();
     if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 60);
   };
-  apply(storageGet(DEMO_BANNER_KEY) === "collapsed");
+  // No remembered choice yet: start collapsed on phones, where the details
+  // would otherwise fill a quarter of the screen.
+  const remembered = storageGet(DEMO_BANNER_KEY);
+  apply(remembered ? remembered === "collapsed" : window.matchMedia("(max-width: 640px)").matches);
   btn.addEventListener("click", () => {
     const collapsed = !banner.classList.contains("collapsed");
     storageSet(DEMO_BANNER_KEY, collapsed ? "collapsed" : "open");

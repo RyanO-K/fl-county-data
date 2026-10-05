@@ -21,10 +21,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, g, jsonify, render_template, request
+from werkzeug.exceptions import BadRequest, HTTPException
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 import etl  # noqa: E402  (same folder)
 import recordings  # noqa: E402
+from dor_codes import (  # noqa: E402  (stdlib only; shared with ag_encroachment.py)
+    DOR_ROLL_FORMAT, RESIDENTIAL_CATEGORIES, county_code_format, normalize_code,
+)
 DB_PATH = etl.DB_PATH
 SOURCES_PATH = BASE_DIR / "scripts" / "sources.json"
 # Descriptions for land-use codes whose source layer has none (Orange); built
@@ -33,6 +37,8 @@ CODE_DESCRIPTIONS_PATH = BASE_DIR / "scripts" / "code_descriptions.json"
 # Agricultural zoning codes per county, for the "Agricultural zoning" preset;
 # built by scripts/build_ag_zoning_codes.py.
 AG_ZONING_PATH = BASE_DIR / "scripts" / "ag_zoning_codes.json"
+# Land-use preset buckets (sets of DOR use-code categories), hand-curated.
+LAND_USE_PRESETS_PATH = BASE_DIR / "scripts" / "land_use_presets.json"
 # Output of scripts/ag_encroachment.py, attached read-only for the "Ag enclaves"
 # filter. The demo database carries its own ag_enclaves table instead.
 AG_RESULTS_PATH = Path(os.environ.get("FL_AG_RESULTS") or etl.DB_PATH.with_name("ag_encroachment.db"))
@@ -64,14 +70,82 @@ VALUES_COLUMNS = [
     "site_address", "site_city", "site_zip", "last_synced_at",
 ]
 
-# Allowed sort keys for /api/values -> actual ORDER BY expression.
-VALUES_SORT_COLUMNS = {
-    "just_value": "just_value",
-    "sale_price": "sale_price",
-    "sale_year": "sale_year, sale_month",
-    "land_value": "land_value",
-    "parcel_id": "parcel_id",
+# Sortable table columns: sort key (the ?sort= value) -> (columns, kind). Only
+# these literal column names ever reach ORDER BY; the user's value is just a
+# dict lookup. The first column decides where missing values go (see
+# order_by_clause); any further columns break ties within it. kind:
+#   "key"  - NOT NULL column, no missing values to place
+#   "num"  - numeric, NULL counts as missing
+#   "text" - text, NULL or '' counts as missing
+NUM, TEXT, KEY = "num", "text", "key"
+
+# Browse table (/api/features). Every visible column; "Zoning" and "Land use"
+# show code + description and sort by the code, "Last sale" by its price.
+FEATURES_SORT_COLUMNS = {
+    "id": (("id",), KEY),  # the default order
+    # county/dataset_type/feature_key is the table's UNIQUE index, so these
+    # two orders are total on their own and county can walk that index.
+    "county": (("county", "dataset_type", "feature_key"), KEY),
+    "dataset_type": (("dataset_type", "county", "feature_key"), KEY),
+    "feature_key": (("feature_key",), KEY),
+    "city": (("city",), TEXT),
+    "acreage": (("acreage",), NUM),
+    "zoning_code": (("zoning_code", "zoning_desc"), TEXT),
+    "land_use_code": (("land_use_code", "land_use_desc"), TEXT),
+    "land_value": (("land_value",), NUM),
+    "building_value": (("building_value",), NUM),
+    "total_value": (("total_value",), NUM),
+    "just_value": (("just_value",), NUM),
+    "sale_price": (("sale_price",), NUM),
+    "sale_date": (("sale_date",), TEXT),
+    "last_synced_at": (("last_synced_at",), KEY),
 }
+
+# Parcel Values table (/api/values). The original five keys keep their names
+# so existing ?sort= URLs still work.
+VALUES_SORT_COLUMNS = {
+    "county": (("county",), KEY),
+    "parcel_id": (("parcel_id",), KEY),
+    "site_address": (("site_address",), TEXT),
+    "site_city": (("site_city",), TEXT),
+    "dor_use_code": (("dor_use_code",), TEXT),
+    "just_value": (("just_value",), NUM),
+    "assessed_value": (("assessed_value",), NUM),
+    "taxable_value": (("taxable_value",), NUM),
+    "land_value": (("land_value",), NUM),
+    "land_sqft": (("land_sqft",), NUM),
+    "sale_price": (("sale_price",), NUM),
+    "sale_year": (("sale_year", "sale_month"), NUM),
+    "sale_qual": (("sale_qual",), TEXT),
+    "year_built": (("year_built",), NUM),
+}
+
+
+def sort_direction(value, default="ASC"):
+    """'asc'/'desc' (any case) -> SQL keyword; anything else -> default."""
+    v = (value or "").strip().lower()
+    return "ASC" if v == "asc" else "DESC" if v == "desc" else default
+
+
+def order_by_clause(spec, direction, tiebreak):
+    """ORDER BY body for a (columns, kind) entry of a *_SORT_COLUMNS table.
+
+    Missing values (NULL, and '' for text) go last in both directions. DESC
+    already puts them last in SQLite (NULL < '' < any other text), so the plain
+    column is used and an index on it still serves the sort. ASC needs help:
+    NULLS LAST for numbers (which SQLite can still serve from an index) and a
+    blank flag for text. `tiebreak` columns follow in the same direction so
+    every row has a fixed place and OFFSET paging never repeats or skips one.
+    """
+    cols, kind = spec
+    first = cols[0]
+    terms = []
+    if direction == "ASC" and kind == TEXT:
+        terms.append(f"({first} IS NULL OR {first} = '')")
+    terms.append(f"{first} {direction}" + (" NULLS LAST" if direction == "ASC" and kind == NUM else ""))
+    for c in list(cols[1:]) + [c for c in tiebreak if c not in cols]:
+        terms.append(f"{c} {direction}")
+    return ", ".join(terms)
 
 
 def get_db():
@@ -90,6 +164,18 @@ def get_db():
     return g.db
 
 
+@app.errorhandler(400)
+@app.errorhandler(413)
+@app.errorhandler(414)
+def api_http_error(exc):
+    """JSON {"error": ...} for a refused /api/* request (too many filter
+    codes, a request too large), so the UI can show the reason; other pages
+    keep Flask's HTML error page."""
+    if not request.path.startswith("/api/") or not isinstance(exc, HTTPException):
+        return exc
+    return jsonify({"error": exc.description}), exc.code
+
+
 @app.teardown_appcontext
 def close_db(_exc):
     conn = g.pop("db", None)
@@ -106,7 +192,8 @@ def has_table(conn, name):
 
 # Most codes one multi-select filter accepts: the facets list at most 500 per
 # field, so the UI never sends more, and the cap keeps a hand-built URL far
-# below SQLite's bound-variable limit (32766 since SQLite 3.32).
+# below SQLite's bound-variable limit (32766 since SQLite 3.32). A request
+# over it is refused with a 400 naming the parameter (code_args).
 MAX_FILTER_CODES = 500
 
 
@@ -130,11 +217,26 @@ def arg_list(args, name, limit=None):
     return out
 
 
+def code_args(args, name):
+    """arg_list for a code filter, refusing more than MAX_FILTER_CODES
+    distinct values with a 400 (JSON on /api/*, see api_http_error) naming
+    the parameter, rather than silently dropping the rest."""
+    codes = arg_list(args, name)
+    if len(codes) > MAX_FILTER_CODES:
+        raise BadRequest(f"Too many {name} values: {len(codes):,} (at most {MAX_FILTER_CODES:,}). "
+                         "Select fewer codes.")
+    return codes
+
+
 # Preset filters: a named selection with per-county meaning (?preset=ag_zoning).
 # The same zoning code string means different districts in different counties
 # (Volusia's "A" vs Palm Beach's "A (city)"), so a preset is applied as
 # (county, zoning_code) pairs, never as a flat code list.
 PRESETS = {"ag_zoning": "Agricultural zoning"}
+# Land-use presets (?preset=lu_<bucket>) come from land_use_presets.json
+# instead: each is a set of DOR use-code categories, matched the same way as
+# hide_residential (see category_clause).
+LAND_USE_PRESET_PREFIX = "lu_"
 # Most codes a preset binds as parameters (SQLite's limit is 32766 since 3.32;
 # the other filters bind at most ~1000). Beyond it the codes are inlined as
 # quoted SQL literals, which is only ever reached by a hand-edited JSON file.
@@ -169,6 +271,43 @@ def load_ag_zoning():
     return _ag_zoning_cache["data"]
 
 
+_land_use_presets_cache = {"key": None, "data": {}}
+
+
+def load_land_use_presets():
+    """{"lu_<bucket>": {"label": str, "categories": frozenset of "00".."99"}}
+    from LAND_USE_PRESETS_PATH, re-read only when its path or mtime changes.
+    A missing or malformed file (or bucket) yields no presets."""
+    path = LAND_USE_PRESETS_PATH
+    try:
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return {}
+    if _land_use_presets_cache["key"] != key:
+        try:
+            raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raw = {}
+        buckets = raw.get("buckets") if isinstance(raw, dict) else None
+        data = {}
+        if isinstance(buckets, dict):
+            for name, b in buckets.items():
+                if not (isinstance(name, str) and isinstance(b, dict) and isinstance(b.get("categories"), list)):
+                    continue
+                cats = frozenset(c for c in b["categories"]
+                                 if isinstance(c, str) and len(c) == 2 and c.isdigit())
+                if cats:
+                    data[LAND_USE_PRESET_PREFIX + name] = {
+                        "label": str(b.get("label") or name), "categories": cats}
+        _land_use_presets_cache.update(key=key, data=data)
+    return _land_use_presets_cache["data"]
+
+
+def all_presets():
+    """{preset name: label} for every known preset, zoning first."""
+    return {**PRESETS, **{k: v["label"] for k, v in load_land_use_presets().items()}}
+
+
 def preset_codes(preset, county=None):
     """{county: [zoning codes]} a preset selects, limited to `county` when one
     is given. None for an unknown (ignored) preset."""
@@ -184,14 +323,11 @@ def _sql_literal(s):
     return "'" + str(s).replace("'", "''") + "'"
 
 
-def preset_clause(args):
-    """(sql, params) for the ?preset= filter, or None when no known preset is
-    set. With nothing to match (the county has no agricultural codes, or the
-    JSON is missing) the clause is false rather than absent: the preset means
-    'only these districts', so it must not widen to every row."""
-    per_county = preset_codes((args.get("preset") or "").strip(), args.get("county") or "")
-    if per_county is None:
-        return None
+def county_codes_clause(per_county, col, extra=""):
+    """(sql, params) matching rows whose (county, col) is one of the pairs in
+    {county: [codes]}, each pair group optionally narrowed by the literal SQL
+    `extra`. False ("0") for an empty mapping. Codes are bound as parameters
+    up to MAX_PRESET_BOUND, beyond that inlined as quoted literals."""
     if not per_county:
         return "0", []
     bind = sum(len(c) for c in per_county.values()) + len(per_county) <= MAX_PRESET_BOUND
@@ -199,13 +335,88 @@ def preset_clause(args):
     for county in sorted(per_county):
         codes = per_county[county]
         if bind:
-            parts.append(f"(county = ? AND zoning_code IN ({', '.join('?' * len(codes))}))")
+            parts.append(f"(county = ?{extra} AND {col} IN ({', '.join('?' * len(codes))}))")
             params.append(county)
             params.extend(codes)
         else:
-            parts.append(f"(county = {_sql_literal(county)} AND zoning_code IN "
+            parts.append(f"(county = {_sql_literal(county)}{extra} AND {col} IN "
                          f"({', '.join(_sql_literal(c) for c in codes)}))")
     return "(" + " OR ".join(parts) + ")", params
+
+
+def preset_clause(args, conn=None):
+    """(sql, params) for the ?preset= filter, or None when no known preset is
+    set. With nothing to match (the county has no agricultural codes, or the
+    JSON is missing) the clause is false rather than absent: the preset means
+    'only these districts', so it must not widen to every row. A land-use
+    preset keeps rows whose DOR category is in its bucket; unknowns drop."""
+    bucket = load_land_use_presets().get((args.get("preset") or "").strip())
+    if bucket:
+        sql, params = category_clause(conn, bucket["categories"], args.get("county") or None)
+        return f"COALESCE({sql}, 0)", params
+    per_county = preset_codes((args.get("preset") or "").strip(), args.get("county") or "")
+    if per_county is None:
+        return None
+    return county_codes_clause(per_county, "zoning_code")
+
+
+# Hide residential (?hide_residential=1): drop parcels whose DOR use-code
+# category is residential (01-09, see dor_codes.RESIDENTIAL_CATEGORIES; 00,
+# vacant residential, stays). The statewide roll's dor_use_code decides; where
+# a row has none the county's own land_use_code does, when its county format
+# (dor_codes.COUNTY_CODE_FORMATS) reads it as a DOR category. Rows with no
+# usable code are kept. Every spelling the roll format accepts ("1", "01",
+# "001"), from normalize_code itself; digits only, so safe to inline.
+DOR_ROLL_CODES = sorted({s for n in range(100) for s in (str(n), f"{n:02d}", f"{n:03d}")
+                         if normalize_code(s, DOR_ROLL_FORMAT) is not None})
+DOR_ROLL_RESIDENTIAL = [s for s in DOR_ROLL_CODES
+                        if normalize_code(s, DOR_ROLL_FORMAT) in RESIDENTIAL_CATEGORIES]
+
+
+def category_land_use_codes(conn, categories, county=None):
+    """{county: [parcels land_use_code values whose county format reads as one
+    of `categories`]}, limited to `county` when given. The candidate
+    codes come from the cached per-code counts (compute_code_counts); without
+    a connection only an already cached copy is used, else {}."""
+    if conn is not None:
+        cc = _cached("code_counts", lambda: compute_code_counts(conn))
+    else:
+        with _facets_lock:
+            hit = _facets_cache.get("code_counts")
+        cc = hit[1] if hit else None
+    out = {}
+    for c, per_dataset in ((cc or {}).get("land_use") or {}).items():
+        if county and c != county:
+            continue
+        fmt = county_code_format(c)
+        codes = sorted(code for code in per_dataset.get("parcels", {})
+                       if normalize_code(code, fmt) in categories)
+        if codes:
+            out[c] = codes
+    return out
+
+
+def residential_land_use_codes(conn, county=None):
+    return category_land_use_codes(conn, RESIDENTIAL_CATEGORIES, county)
+
+
+def category_clause(conn, categories, county=None):
+    """(sql, params) for an expression that is 1 for rows whose DOR category
+    is in `categories`, 0 for rows known to be outside them and NULL for
+    unknown (a NULL land_use_code in the fallback); callers COALESCE it."""
+    roll = ", ".join(f"'{s}'" for s in DOR_ROLL_CODES)
+    roll_hit = ", ".join(f"'{s}'" for s in DOR_ROLL_CODES
+                         if normalize_code(s, DOR_ROLL_FORMAT) in categories) or "NULL"
+    fallback, params = county_codes_clause(
+        category_land_use_codes(conn, categories, county), "land_use_code", " AND dataset_type = 'parcels'")
+    return f"CASE WHEN dor_use_code IN ({roll}) THEN dor_use_code IN ({roll_hit}) ELSE {fallback} END", params
+
+
+def residential_clause(conn, county=None):
+    """(sql, params) keeping every row that is not known to be residential;
+    NOT COALESCE(..., 0) keeps unknowns."""
+    sql, params = category_clause(conn, RESIDENTIAL_CATEGORIES, county)
+    return f"NOT COALESCE({sql}, 0)", params
 
 
 # Ag enclaves (?ag_enclave=1): parcels in an agricultural zoning district
@@ -249,6 +460,9 @@ def build_filters(args, conn=None):
     everything else, including an explicit zoning_code selection.
     ag_enclave=1 keeps the ag enclaves (see enclave_source); with no results
     on file it matches nothing.
+    exclude_land_use_code (repeatable) drops rows carrying any of the codes;
+    rows with no land-use code stay. hide_residential=1 drops parcels whose
+    DOR category is residential (see residential_clause); unknowns stay.
     `conn` is only needed for the recorded-instrument filters (has_mortgage,
     mortgage_since, mortgage_min, mortgage_max, has_lien) and ag_enclave,
     which are skipped when it is None or their tables are absent."""
@@ -268,16 +482,26 @@ def build_filters(args, conn=None):
 
     add("county", args.get("county"))
     add("dataset_type", args.get("dataset_type"))
-    preset = preset_clause(args)
+    preset = preset_clause(args, conn)
     if preset:
         clauses.append(preset[0])
         params.extend(preset[1])
     # Code filters are multi-select: a row matches any of the chosen codes.
     for col in ("zoning_code", "land_use_code"):
-        codes = arg_list(args, col, MAX_FILTER_CODES)
+        codes = code_args(args, col)
         if codes:
             clauses.append(f"{col} IN ({', '.join('?' * len(codes))})")
             params.extend(codes)
+    # Excluded land-use codes: rows without a land-use code are kept (a bare
+    # NOT IN would drop them, as NULL NOT IN (...) is NULL).
+    excluded = code_args(args, "exclude_land_use_code")
+    if excluded:
+        clauses.append(f"(land_use_code IS NULL OR land_use_code NOT IN ({', '.join('?' * len(excluded))}))")
+        params.extend(excluded)
+    if args.get("hide_residential") == "1":
+        sql, rparams = residential_clause(conn, args.get("county") or None)
+        clauses.append(sql)
+        params.extend(rparams)
     add("acreage", args.get("min_acreage"), ">=", float)
     add("acreage", args.get("max_acreage"), "<=", float)
     add("total_value", args.get("min_value"), ">=", float)
@@ -520,11 +744,13 @@ def _facets_key(args):
         vals = sorted(arg_list(args, k))
         if vals:
             items.append((k, vals[0] if len(vals) == 1 else vals))
-    if (args.get("preset") or "").strip() in PRESETS:
+    preset = (args.get("preset") or "").strip()
+    if preset in all_presets():
         # The preset's codes live in a JSON file; a rebuilt file must not be
         # answered from facets computed with the old codes.
+        path = LAND_USE_PRESETS_PATH if preset.startswith(LAND_USE_PRESET_PREFIX) else AG_ZONING_PATH
         try:
-            items.append(("_preset_file", AG_ZONING_PATH.stat().st_mtime_ns))
+            items.append(("_preset_file", path.stat().st_mtime_ns))
         except OSError:
             items.append(("_preset_file", None))
     return json.dumps(sorted(items, key=lambda kv: kv[0]))
@@ -662,8 +888,8 @@ def _recording_needs(args):
 def filter_counts(conn, args):
     """Upper bound on matching rows per county (ignoring the county filter) and
     per dataset (ignoring the dataset filter) for the categorical filters:
-    dataset, zoning code, land-use code, preset, ag enclaves and the
-    recorded-instrument filters.
+    dataset, zoning code, land-use code (chosen or excluded), preset, ag
+    enclaves and the recorded-instrument filters.
     A multi-code selection counts the rows of all its codes (each row has one
     code, so the sum is exact per dataset). Each constraint is applied
     independently and the minimum taken, so a
@@ -672,8 +898,17 @@ def filter_counts(conn, args):
     cc = _cached("code_counts", lambda: compute_code_counts(conn))
     rec = _cached("availability", lambda: compute_availability(conn))["recordings"]
     dt_arg = args.get("dataset_type") or ""
-    zoning = arg_list(args, "zoning_code", MAX_FILTER_CODES)
-    land_use = arg_list(args, "land_use_code", MAX_FILTER_CODES)
+    zoning = code_args(args, "zoning_code")
+    land_use = code_args(args, "land_use_code")
+    # Excluded codes: subtracting their rows is exact (rows with no code are
+    # not counted under any code, and stay). hide_residential is not counted:
+    # it turns on the DOR roll code, which these counts do not carry, so the
+    # bound simply stays an upper bound.
+    excluded = set(code_args(args, "exclude_land_use_code"))
+    if excluded and land_use:
+        land_use = [c for c in land_use if c not in excluded]
+        if not land_use:
+            land_use = None  # every chosen code is also excluded: nothing matches
     needs = _recording_needs(args)
     # Preset: per-county zoning codes (all counties; the county filter is
     # ignored here like everywhere in this function). A county missing from
@@ -703,8 +938,12 @@ def filter_counts(conn, args):
             n = ds.get(d, 0)
             if codes is not None:
                 n = min(n, code_rows("zoning", county, d, codes))
-            if land_use:
+            if land_use is None:
+                n = 0
+            elif land_use:
                 n = min(n, code_rows("land_use", county, d, land_use))
+            if excluded:
+                n = min(n, ds.get(d, 0) - code_rows("land_use", county, d, excluded))
             if enclaves is not None:
                 n = min(n, enclaves.get(county, 0)) if d == "parcels" else 0
             if needs:
@@ -813,12 +1052,16 @@ def api_availability():
 
 @app.route("/api/presets")
 def api_presets():
-    """The preset filters and, per preset, how many zoning codes each county
-    contributes (the UI's hint), from ag_zoning_codes.json."""
+    """The preset filters. The zoning preset carries how many zoning codes each
+    county contributes (the UI's hint), from ag_zoning_codes.json; each
+    land-use preset (kind "land_use") its DOR categories."""
     out = {}
     for name, label in PRESETS.items():
         per_county = preset_codes(name) or {}
-        out[name] = {"label": label, "counties": {c: len(v) for c, v in per_county.items()}}
+        out[name] = {"label": label, "kind": "zoning",
+                     "counties": {c: len(v) for c, v in per_county.items()}}
+    for name, b in load_land_use_presets().items():
+        out[name] = {"label": b["label"], "kind": "land_use", "categories": sorted(b["categories"])}
     return jsonify(out)
 
 
@@ -854,6 +1097,15 @@ def api_features():
 
     include_geometry = request.args.get("geometry") == "1"
 
+    # Unknown or absent sort keys keep the original id order. The map feed
+    # (geometry=1) always takes the first features by id.
+    sort = request.args.get("sort", "")
+    if sort in FEATURES_SORT_COLUMNS and not include_geometry:
+        direction = sort_direction(request.args.get("dir"))
+    else:
+        sort, direction = "id", "ASC"
+    order = order_by_clause(FEATURES_SORT_COLUMNS[sort], direction, ["id"])
+
     total = conn.execute(
         f"SELECT COUNT(*) FROM features {where}", params
     ).fetchone()[0]
@@ -872,7 +1124,7 @@ def api_features():
 
     rows = conn.execute(
         f"SELECT {cols} FROM features {where} "
-        f"ORDER BY id LIMIT ? OFFSET ?",
+        f"ORDER BY {order} LIMIT ? OFFSET ?",
         params + [limit, offset],
     ).fetchall()
 
@@ -883,6 +1135,8 @@ def api_features():
         "page": page,
         "per_page": per_page,
         "total_pages": max(1, (total + per_page - 1) // per_page),
+        "sort": sort,
+        "dir": direction.lower(),
     })
 
 
@@ -1027,9 +1281,14 @@ def api_values():
         per_page = 50
     per_page = max(1, min(per_page, MAX_PER_PAGE))
 
+    # Defaults (just_value, high to low) are what this endpoint always did;
+    # an unknown key falls back to just_value but keeps the asked direction.
     sort = request.args.get("sort", "just_value")
-    sort_col = VALUES_SORT_COLUMNS.get(sort, VALUES_SORT_COLUMNS["just_value"])
-    direction = "ASC" if (request.args.get("dir", "desc").lower() == "asc") else "DESC"
+    if sort not in VALUES_SORT_COLUMNS:
+        sort = "just_value"
+    direction = sort_direction(request.args.get("dir"), "DESC")
+    # (county, parcel_id) is the primary key: a total, index-friendly tiebreak.
+    order = order_by_clause(VALUES_SORT_COLUMNS[sort], direction, ["county", "parcel_id"])
 
     total = conn.execute(
         f"SELECT COUNT(*) FROM parcel_values {where}", params
@@ -1039,7 +1298,7 @@ def api_values():
     cols = ", ".join(VALUES_COLUMNS)
     rows = conn.execute(
         f"SELECT {cols} FROM parcel_values {where} "
-        f"ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+        f"ORDER BY {order} LIMIT ? OFFSET ?",
         params + [per_page, offset],
     ).fetchall()
 
@@ -1049,6 +1308,8 @@ def api_values():
         "page": page,
         "per_page": per_page,
         "total_pages": max(1, (total + per_page - 1) // per_page),
+        "sort": sort,
+        "dir": direction.lower(),
     })
 
 
